@@ -22,10 +22,10 @@ class BLEService extends ChangeNotifier {
       StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get dataStream => _dataStreamController.stream;
 
-  StreamSubscription?            _scanSubscription;
-  StreamSubscription?            _connectionStateSubscription;
-  StreamSubscription?            _notifySubscription;
-  StreamSubscription<List<int>>? _scanResultsSubscription;
+  StreamSubscription?                 _scanSubscription;
+  StreamSubscription?                 _connectionStateSubscription;
+  StreamSubscription?                 _notifySubscription;
+  StreamSubscription<List<ScanResult>>? _scanResultsSubscription;
 
   // ================================================================
   // startScan()
