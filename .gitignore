@@ -1,0 +1,48 @@
+# OS/IDE files
+.vscode/
+.idea/
+*.suo
+*.user
+*.userossc
+*.sln
+*.vcproj
+*.filters
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+ENV/
+dist/
+build/
+*.egg-info/
+*.csv
+*.log
+
+# C++ / Arduino
+**/build/
+**/elf/
+**/bin/
+*.~*
+*.hex
+*.bin
+
+# Flutter / MobileApp
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+**/build/
+*.flutter-plugins
+*.flutter-plugins-dependencies
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+android/key.properties
+android/.gradle/
+web/flutter_bootstrap.js
