@@ -46,3 +46,5 @@ ios/Flutter/flutter_export_environment.sh
 android/key.properties
 android/.gradle/
 web/flutter_bootstrap.js
+*.apk
+
