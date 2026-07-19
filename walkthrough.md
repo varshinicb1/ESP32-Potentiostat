@@ -11,6 +11,7 @@
 |---|---|
 | **Firmware (ESP32-S3)** | ✅ Exit code 0 — `1,272,765 bytes (62%)` of `huge_app` partition |
 | **Desktop GUI tests** | ✅ `50 passed` in `14.32s` — 0 failures, 0 skips |
+| **Mobile App (Flutter)** | ✅ Compiled Release APK (`48.3 MB`) successfully |
 | **Compliance Audit** | ✅ IEC 61010-1, IEC 62304, ISO 13485 — documented |
 
 ### Compile Command (use this to flash)
