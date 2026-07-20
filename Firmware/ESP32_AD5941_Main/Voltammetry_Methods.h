@@ -37,11 +37,15 @@ struct SWV_Params {
 
 class Voltammetry_Methods {
 private:
-    // Helper DAC configuration for AD5941 bias
-    static void setVoltageBias(float voltageRef);
     static float readCurrentResponse();
 
 public:
+    // Maps a desired cell voltage (vs. reference) to the LPDAC code and applies it.
+    // Public because EIS_Method also needs it to apply the DC bias operating point
+    // before layering the HSDAC/WG sine excitation on top (same LPDAC bias path
+    // used by CV/CA/SWV).
+    static void setVoltageBias(float voltageRef);
+
     static void runCV(CV_Params params, void (*dataCallback)(Voltammetry_DataPoint));
     static void runCA(CA_Params params, void (*dataCallback)(Voltammetry_DataPoint));
     static void runSWV(SWV_Params params, void (*dataCallback)(Voltammetry_DataPoint));

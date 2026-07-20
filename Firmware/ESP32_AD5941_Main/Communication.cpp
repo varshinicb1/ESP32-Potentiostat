@@ -95,7 +95,7 @@ void Communication::init() {
     configASSERT(bleMutex       != nullptr);
 
     // --- BLE Stack ---
-    BLEDevice::init("VidyuthLabs_Potentiostat");
+    BLEDevice::init("AnalyteX");
 
     // Request a larger MTU to handle JSON payloads > 23 bytes.
     // The client must also request MTU negotiation; this sets our preference.
@@ -130,7 +130,7 @@ void Communication::init() {
     uint64_t chipId = ESP.getEfuseMac();
     snprintf(apPassword, sizeof(apPassword), "VL-%04X%08X",
              (uint16_t)(chipId >> 32), (uint32_t)chipId);
-    WiFi.softAP("VidyuthLabs_AP", apPassword);
+    WiFi.softAP("AnalyteX_AP", apPassword);
 
     // --- WebSocket Server on port 81 ---
     webSocket.begin();

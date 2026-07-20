@@ -14,8 +14,8 @@
 #define FW_VERSION_MINOR    2
 #define FW_VERSION_PATCH    0
 #define FW_VERSION_STRING   "0.2.0"
-#define FW_DEVICE_MODEL     "VidyuthLabs-Potentiostat-V1"
-#define FW_MANUFACTURER     "VidyuthLabs"
+#define FW_DEVICE_MODEL     "AnalyteX-V1"
+#define FW_MANUFACTURER     "VidyuthLabs Technologies Pvt Ltd"
 
 class FirmwareIntegrity {
 public:

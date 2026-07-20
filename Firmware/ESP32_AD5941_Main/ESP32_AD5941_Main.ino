@@ -24,6 +24,7 @@
 // ===================================================================
 
 #include <Arduino.h>
+#include <math.h>
 #include <esp_task_wdt.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -59,6 +60,7 @@ enum PotentiostatState {
     STATE_RUNNING_CA,
     STATE_RUNNING_SWV,
     STATE_RUNNING_EIS,
+    STATE_RUNNING_CAL,     // Operator-triggered RCAL gain/phase calibration
     STATE_ERROR,           // Entered on POST failure or critical fault
     STATE_SAFE_SHUTDOWN    // Entered on emergency stop
 };
@@ -74,6 +76,12 @@ static volatile bool abortRequested = false;
 
 // POST result flag
 static volatile bool postPassed = false;
+
+// Cached diagnostic readings — only refreshed from hardware when the system is
+// IDLE, so the DIAG command never races TaskDAQ for the AD5941 SPI bus/IRQ.
+static float    lastDiagTempC    = NAN;
+static float    lastDiagVrefV    = NAN;
+static uint32_t lastDiagUpdateMs = 0;
 
 // ===================================================================
 // State machine helpers — always call these, never access systemState directly
@@ -108,6 +116,12 @@ static void setAbort(bool val) {
     portENTER_CRITICAL(&abortMux);
     abortRequested = val;
     portEXIT_CRITICAL(&abortMux);
+
+    // IMPORTANT: Voltammetry_Methods and EIS_Method poll AD5941_Driver::isAbortPending(),
+    // a *separate* flag from the one above. Both must be kept in sync or ABORT will
+    // stop data being forwarded to the client while the hardware scan keeps running
+    // underneath (electrodes stay biased, relay stays closed) until it finishes on its own.
+    AD5941_Driver::setAbortFlag(val);
 }
 
 // ===================================================================
@@ -149,8 +163,12 @@ static bool validateCAParams(const CA_Params& p, String& errMsg) {
     if (p.duration <= 0.0f || p.duration > 3600.0f) {
         errMsg = "duration must be 0 < d <= 3600 s"; return false;
     }
-    if (p.sampleInterval <= 0.0f || p.sampleInterval > p.duration) {
-        errMsg = "interval must be positive and <= duration"; return false;
+    // Floor raised from "any positive value" to 10ms: readCurrentResponse()'s
+    // ADC poll alone can take up to 5ms, plus SPI/loop overhead, so intervals
+    // much below this aren't actually achievable — a smaller requested value
+    // was previously accepted but silently sampled slower than requested.
+    if (p.sampleInterval < 0.01f || p.sampleInterval > p.duration) {
+        errMsg = "interval must be 0.01 s <= interval <= duration"; return false;
     }
     return true;
 }
@@ -358,10 +376,25 @@ void TaskComm(void* pvParameters) {
             }
             // -- DIAG --
             else if (strcmp(method, "DIAG") == 0) {
-                StaticJsonDocument<300> diagDoc;
+                // AD5941_Driver::readInternalTemperature()/readInternalVref() do raw SPI
+                // register writes and detach/reattach the AD5941 IRQ. TaskDAQ (Core 1)
+                // "owns" the SPI bus/IRQ exclusively while a measurement is running, so
+                // calling those from here (Core 0) mid-scan would race it and can corrupt
+                // an in-flight ADC/DFT conversion. Only take a fresh reading when IDLE;
+                // otherwise report the last known-good values and mark them stale.
+                bool freshReading = (getState() == STATE_IDLE);
+                if (freshReading) {
+                    lastDiagTempC = AD5941_Driver::readInternalTemperature();
+                    lastDiagVrefV = AD5941_Driver::readInternalVref();
+                    lastDiagUpdateMs = millis();
+                }
+
+                StaticJsonDocument<320> diagDoc;
                 diagDoc["type"]          = "diagnostics";
-                diagDoc["temp_C"]        = AD5941_Driver::readInternalTemperature();
-                diagDoc["vref_V"]        = AD5941_Driver::readInternalVref();
+                diagDoc["temp_C"]        = lastDiagTempC;
+                diagDoc["vref_V"]        = lastDiagVrefV;
+                diagDoc["reading_stale"] = !freshReading;
+                diagDoc["reading_age_ms"] = millis() - lastDiagUpdateMs;
                 diagDoc["free_heap"]     = ESP.getFreeHeap();
                 diagDoc["min_free_heap"] = ESP.getMinFreeHeap();
                 diagDoc["uptime_ms"]     = millis();
@@ -428,6 +461,15 @@ void TaskComm(void* pvParameters) {
                         }
                     }
                 }
+                else if (strcmp(method, "CAL") == 0) {
+                    // Operator must have the RCAL reference resistor connected across
+                    // WE/RE in place of a real cell before sending this. Relay handling
+                    // and safe-state cleanup are identical to a real measurement.
+                    if (xSemaphoreTake(stateMutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+                        systemState = STATE_RUNNING_CAL;
+                        xSemaphoreGive(stateMutex);
+                    }
+                }
                 else if (strcmp(method, "EIS") == 0) {
                     float start = doc["params"]["start_freq"] | 10.0f;
                     float stop  = doc["params"]["stop_freq"]  | 100000.0f;
@@ -484,6 +526,7 @@ void TaskDAQ(void* pvParameters) {
     // Initialize AD5941 chip on Core 1 (SPI is used exclusively here at runtime)
     AD5941_Driver::initMCU();
     AD5941_Driver::resetChip();
+    AD5941_Driver::configureAFE(); // AFE reference buffers + LP-loop bring-up (see AD5941_Driver.h)
     AD5941_Driver::setRelay(false); // Ensure electrodes isolated at startup
     Storage::logEvent("INFO", "AD5941 initialized on Core 1. Relay confirmed OPEN.");
 
@@ -529,6 +572,16 @@ void TaskDAQ(void* pvParameters) {
                     eis.runSweep(onEISData);
                 });
             }
+            else if (currentState == STATE_RUNNING_CAL) {
+                Storage::logEvent("INFO", "Starting RCAL gain/phase calibration");
+                String calResult;
+                bool calOk = false;
+                executeMeasurementSafe("CAL", [&]() {
+                    calOk = AD5941_Driver::performCalibration(calResult);
+                });
+                Storage::logEvent(calOk ? "INFO" : "WARN", String("Calibration: ") + calResult);
+                sendStatusMessage(calOk ? "cal_ok" : "cal_error", calResult.c_str());
+            }
 
             Storage::closeActiveFile();
             setState(STATE_IDLE);
@@ -547,7 +600,7 @@ void TaskDAQ(void* pvParameters) {
 // ===================================================================
 bool runPowerOnSelfTest() {
     Serial.println("========================================");
-    Serial.println(" VidyuthLabs Potentiostat — POST");
+    Serial.println(" AnalyteX — POST");
     Serial.println(" Firmware: " FW_VERSION_STRING);
     Serial.println("========================================");
 
@@ -667,6 +720,12 @@ void setup() {
     }
 
     postPassed = true;
+
+    // Seed the DIAG cache with real readings taken during POST (system is
+    // single-threaded here, so there's no race against TaskDAQ yet).
+    lastDiagTempC    = AD5941_Driver::readInternalTemperature();
+    lastDiagVrefV    = AD5941_Driver::readInternalVref();
+    lastDiagUpdateMs = millis();
 
     // --- Initialize Task Watchdog Timer ---
     esp_task_wdt_init(TWDT_TIMEOUT_SEC, true);

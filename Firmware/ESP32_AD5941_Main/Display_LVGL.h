@@ -5,6 +5,9 @@
 #include <Arduino.h>
 #include <LovyanGFX.hpp>
 #include <lvgl.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#include "SharedSPIBus.h"
 
 // LovyanGFX driver for ILI9341 panel + XPT2046 touch on ESP32-S3
 class LGFX_Potentiostat : public lgfx::LGFX_Device {
@@ -29,6 +32,13 @@ private:
     static lv_obj_t* chartScreen;
     static lv_obj_t* chart;
     static lv_chart_series_t* series1;
+
+    // LVGL is not thread-safe: every entry point below is wrapped with this.
+    // Must be RECURSIVE — handleLVGL() holds it while calling lv_timer_handler(),
+    // which synchronously invokes button event callbacks (btn_event_cb, the
+    // chart screen's "Back" button) that call back into showChartScreen()/
+    // buildMainScreen() on the SAME task/core. A plain mutex would self-deadlock.
+    static SemaphoreHandle_t lvglMutex;
 
 public:
     static void init();

@@ -1,0 +1,80 @@
+{
+  "profiles": [
+    {
+      "id": "CoFe2O4_Bi_ASV_PbCd",
+      "name": "Lead & Cadmium (water)",
+      "material": "CoFe2O4 + in-situ Bi film",
+      "target_analytes": ["Pb2+", "Cd2+"],
+      "method": "SWV",
+      "electrolyte": "0.1 M acetate buffer, pH 4.5",
+      "notes": "Literature benchmark (glassy carbon): 7.3 nM Pb2+ / 8.2 nM Cd2+ (SWASV). Re-validate on this ENIG SPE before trusting absolute LOD claims.",
+      "params": {
+        "start_voltage": -1.2,
+        "stop_voltage": -0.2,
+        "step_height": 0.005,
+        "amplitude": 0.025,
+        "frequency": 25
+      }
+    },
+    {
+      "id": "CoFe2O4_Formaldehyde_CA",
+      "name": "Formalin / Formaldehyde (fish, food)",
+      "material": "CoFe2O4",
+      "target_analytes": ["Formaldehyde"],
+      "method": "CA",
+      "electrolyte": "0.1 M phosphate buffer, pH 7",
+      "notes": "Amperometric oxidation at a fixed potential. Sample prep: aqueous extract of the fish/food sample.",
+      "params": {
+        "step_voltage": 0.5,
+        "duration": 30,
+        "interval": 0.5
+      }
+    },
+    {
+      "id": "Fe2O3_ZnO_Arsenic_SWV",
+      "name": "Arsenic (water)",
+      "material": "Fe2O3 + ZnO",
+      "target_analytes": ["As(V)"],
+      "method": "SWV",
+      "electrolyte": "0.1 M acetate buffer, pH 5",
+      "notes": "Literature benchmark (ZnO/Fe2O3 on SPE): LOD 4.12 ppb, LOQ 13.74 ppb — below the WHO 10 ppb limit. Re-validate on this substrate.",
+      "params": {
+        "start_voltage": -0.8,
+        "stop_voltage": 0.2,
+        "step_height": 0.004,
+        "amplitude": 0.02,
+        "frequency": 20
+      }
+    },
+    {
+      "id": "NiCo2O4_Glucose_CA",
+      "name": "Non-enzymatic Glucose",
+      "material": "Cu-doped NiCo2O4",
+      "target_analytes": ["Glucose"],
+      "method": "CA",
+      "electrolyte": "0.1 M NaOH",
+      "notes": "Non-enzymatic amperometric sensing requires alkaline electrolyte, unlike the other (near-neutral/acidic) profiles above.",
+      "params": {
+        "step_voltage": 0.55,
+        "duration": 20,
+        "interval": 0.2
+      }
+    },
+    {
+      "id": "WO3_Aptamer_Arsenic_EIS",
+      "name": "Arsenic — high-sensitivity (aptamer, EIS)",
+      "material": "WO3 + aptamer (thiol-immobilized on gold WE)",
+      "target_analytes": ["As(III)"],
+      "method": "EIS",
+      "electrolyte": "PBS with redox probe (e.g. [Fe(CN)6]3-/4-)",
+      "notes": "Literature benchmark down to 3 pM / 0.75 pM depending on method — highest-ceiling profile in the library, requires the added aptamer immobilization step.",
+      "params": {
+        "start_freq": 1,
+        "stop_freq": 100000,
+        "steps": 50,
+        "amplitude": 10,
+        "bias": 0
+      }
+    }
+  ]
+}

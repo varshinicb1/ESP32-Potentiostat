@@ -106,6 +106,57 @@ python -m pytest .gemini/antigravity-ide/brain/222c3492-8d30-4ccc-a6cb-aa6f8fd9d
 
 ---
 
+## ✅ Latest Verified Build
+
+Real, tool-verified results (not claims) from actually compiling the firmware and running the apps — arduino-cli and an Android emulator, not descriptions. What's not here (a hardware bring-up, an LVGL device-screen render) is explicitly called out as not yet done, not silently skipped.
+
+### Firmware — real `arduino-cli` compile
+
+```bash
+arduino-cli compile --fqbn esp32:esp32:esp32s3:PartitionScheme=huge_app Firmware/ESP32_AD5941_Main
+```
+
+```
+Sketch uses 1728981 bytes (54%) of program storage space. Maximum is 3145728 bytes.
+Global variables use 132028 bytes (40%) of dynamic memory, leaving 195652 bytes for local variables. Maximum is 327680 bytes.
+```
+Full log: [`docs/firmware_compile_log.txt`](docs/firmware_compile_log.txt).
+
+**Compiled clean, zero errors, zero warnings**, against the AD5940 SDK, LovyanGFX, lvgl, ArduinoJson, and WebSockets — this is the first real compile since a substantial AFE re-architecture pass (dual-loop LP/HS-loop bring-up, corrected switch-matrix routing, corrected GPIO pin mapping against the actual schematic, a cross-driver SPI-bus mutex). **This confirms the code builds; it does not confirm it's correct on real hardware** — nothing here exercises the actual AD5941 chip, the display panel, or the shared-bus arbitration under real FreeRTOS scheduling. That's the next step, not this one.
+
+### Mobile app — real Android emulator run
+
+Built (`flutter build apk --debug`) and installed on a running AVD (`emulator-5554`, `star_trail_emu`), then driven via `adb shell input` — not a description of the UI, an actual running instance.
+
+| Material profile picker (default view) | Profile dropdown (all 5 bundled profiles) | Advanced / manual mode |
+|---|---|---|
+| ![Material profile picker](docs/screenshots/mobile_material_profile.png) | ![Profile dropdown](docs/screenshots/mobile_profile_dropdown.png) | ![Advanced mode](docs/screenshots/mobile_advanced_mode.png) |
+
+**What this confirms:** the app builds and runs on Android; the title bar reads "AnalyteX" (the branding fix took); the material-profile picker built this session actually renders and lets you pick between all 5 bundled profiles (Pb/Cd, formaldehyde, arsenic ×2, glucose); each profile's material/method/electrolyte/notes display correctly; the Advanced-mode toggle correctly falls back to the original manual CV/CA/SWV/EIS parameter forms with their default values intact. **Not tested here:** anything requiring a real device connection (BLE scan/pairing, an actual measurement run, chart rendering with live data) — the emulator has no way to connect to real hardware, so this validates the picker/UI logic only, not the full device-connected flow.
+
+#### Visual design pass (post-screenshot feedback)
+
+The screenshots above were flagged, correctly, as looking bad — flat untouched Flutter-tutorial defaults (`Colors.blueAccent` on `#121212`, no type scale), a connection status buried in a 12px AppBar chip, large dead space below the fold, and a disabled button with no explanation. Fixed in `main.dart` (a real `AnalyteXColors` palette — electric teal on near-black ink, amber reserved for literature/reference callouts — plus a proper `ColorScheme`/`TextTheme`/component themes) and `home_page.dart` (a prominent connect/disconnect banner, a redesigned profile card with a method-badge pill and a highlighted literature-benchmark callout, an inline reason under the disabled Start button instead of a bare grayed-out control, and a "Connect → Pick a test → Measure" footer strip that fills the space instead of leaving it empty):
+
+| Redesigned home screen | Advanced / manual mode (same theme) |
+|---|---|
+| ![Redesigned home screen](docs/screenshots/mobile_redesign_home.png) | ![Redesigned advanced mode](docs/screenshots/mobile_redesign_advanced.png) |
+
+Rebuilt (`flutter build apk --debug`, `flutter analyze` clean aside from 2 pre-existing deprecation infos unrelated to this change) and reinstalled on the same AVD to capture both of these — not mockups; the Advanced-mode screenshot was reached by an actual `adb input tap` on the toggle. `chart_page.dart` (the live-plot/results screen) also got matching color-token fixes this pass — the hardcoded `Colors.blueAccent`/`Colors.red[700]`/`Colors.green[700]` status pill, abort button, and error snackbars were replaced with `AnalyteXColors` tokens so it doesn't clash with the rest of the app. **Not screenshotted:** reaching that screen requires an actual BLE-connected device (the Start button is disabled without one), and the Android emulator has no way to pair with real hardware — so this fix is verified by `flutter analyze` passing clean, not by a rendered screenshot.
+
+### Desktop GUI — real PyQt6 run
+
+Launched directly (`python DesktopGUI/main_gui.py`) and screenshotted:
+
+![Desktop GUI](docs/screenshots/desktop_gui.png)
+
+Confirms the app starts, the connection panel and SWV parameter form render correctly with their default values, and the technique tab switching (CV/CA/SWV/EIS) works. Same caveat as above — no real device connected, so this validates UI rendering only.
+
+### LVGL on-device UI — not verified this pass, and why
+No LVGL PC/SDL simulator was built for the on-device touchscreen UI (`Display_LVGL.cpp`). This machine has no native C compiler on `PATH` (`gcc`/`clang` — Visual Studio's MSVC is installed but not configured on this shell), and building LVGL's official simulator harness from scratch — porting the display-flush callback away from the real LovyanGFX/SPI panel driver to an SDL backend — was judged a large enough side-project for uncertain enough payoff (the on-device screens are simple and already reviewed in code) that it wasn't worth doing blind rather than doing carelessly. The real ESP32 compile above does confirm the LVGL/LovyanGFX code compiles correctly for the target; it does not confirm the touchscreen layout renders or the touch controller responds correctly. Flashing real hardware is the actual next verification step here.
+
+---
+
 ## 🛡️ Risk & Error Mitigation
 
 * **Flash Memory Protection**: Configured with `huge_app` partition allocating 2 MB of flash for app logic, leaving **38%** memory headroom.

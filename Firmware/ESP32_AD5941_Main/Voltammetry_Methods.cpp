@@ -1,5 +1,7 @@
 #include "Voltammetry_Methods.h"
 #include <math.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 extern "C" {
 #include <ad5940.h>
@@ -74,6 +76,11 @@ float Voltammetry_Methods::readCurrentResponse() {
     float adcMV = adcV * 1000.0f;
 
     // TIA current: I = (Vref_tia - Vadc) / Rtia
+    // NOTE: this path (LPTIA) has no independent RCAL-based calibration —
+    // unlike EIS_Method's HSTIA path (see AD5941_Driver::performCalibration()),
+    // there is no correction applied here. Absolute current magnitude on
+    // CV/CA/SWV should be treated as uncalibrated until a similar reference-
+    // resistor check is done against this specific path.
     float currentAmps = (VREF_TIA_MV - adcMV) / (RTIA_OHM * 1000.0f);
     return currentAmps;
 }
@@ -98,6 +105,17 @@ void Voltammetry_Methods::runCV(CV_Params params, void (*dataCallback)(Voltammet
 
     for (uint32_t cycle = 0; cycle < params.cycles; cycle++) {
 
+        // Single absolute-time schedule shared across all three segments of this
+        // cycle. vTaskDelayUntil() targets a fixed tick count (lastWake += step
+        // each call) rather than sleeping a fixed relative duration, so the time
+        // spent in readCurrentResponse() (ADC start + poll, up to 5ms) doesn't
+        // silently stretch the effective scan rate beyond what was requested —
+        // previously a plain delay(stepDelayMs) meant true per-step time was
+        // stepDelayMs + ADC overhead, which is proportionally huge at fast scan
+        // rates where stepDelayMs itself is only ~1ms.
+        TickType_t lastWake = xTaskGetTickCount();
+        const TickType_t stepTicks = pdMS_TO_TICKS(stepDelayMs);
+
         // -- Segment 1: startVoltage → vertexVoltage1 --
         {
             float spanV = params.vertexVoltage1 - params.startVoltage;
@@ -107,7 +125,7 @@ void Voltammetry_Methods::runCV(CV_Params params, void (*dataCallback)(Voltammet
                 if (AD5941_Driver::isAbortPending()) return; // Allow external abort
                 float v = params.startVoltage + dir * i * stepSizeV;
                 setVoltageBias(v);
-                delay(stepDelayMs);
+                vTaskDelayUntil(&lastWake, stepTicks);
                 float I = readCurrentResponse();
                 if (isnan(I)) continue; // Skip bad samples, don't crash
                 Voltammetry_DataPoint dp = {v, I, (float)(millis() - startTime) / 1000.0f, 0.0f};
@@ -124,7 +142,7 @@ void Voltammetry_Methods::runCV(CV_Params params, void (*dataCallback)(Voltammet
                 if (AD5941_Driver::isAbortPending()) return;
                 float v = params.vertexVoltage1 + dir * i * stepSizeV;
                 setVoltageBias(v);
-                delay(stepDelayMs);
+                vTaskDelayUntil(&lastWake, stepTicks);
                 float I = readCurrentResponse();
                 if (isnan(I)) continue;
                 Voltammetry_DataPoint dp = {v, I, (float)(millis() - startTime) / 1000.0f, 0.0f};
@@ -141,7 +159,7 @@ void Voltammetry_Methods::runCV(CV_Params params, void (*dataCallback)(Voltammet
                 if (AD5941_Driver::isAbortPending()) return;
                 float v = params.vertexVoltage2 + dir * i * stepSizeV;
                 setVoltageBias(v);
-                delay(stepDelayMs);
+                vTaskDelayUntil(&lastWake, stepTicks);
                 float I = readCurrentResponse();
                 if (isnan(I)) continue;
                 Voltammetry_DataPoint dp = {v, I, (float)(millis() - startTime) / 1000.0f, 0.0f};
@@ -163,9 +181,12 @@ void Voltammetry_Methods::runCA(CA_Params params, void (*dataCallback)(Voltammet
     uint32_t intervalMs  = (uint32_t)(params.sampleInterval * 1000.0f);
     if (intervalMs < 1) intervalMs = 1;
 
+    TickType_t lastWake = xTaskGetTickCount();
+    const TickType_t intervalTicks = pdMS_TO_TICKS(intervalMs);
+
     while ((millis() - startTime) < durationMs) {
         if (AD5941_Driver::isAbortPending()) return;
-        delay(intervalMs);
+        vTaskDelayUntil(&lastWake, intervalTicks);
 
         float I = readCurrentResponse();
         if (isnan(I)) continue;
@@ -193,6 +214,9 @@ void Voltammetry_Methods::runSWV(SWV_Params params, void (*dataCallback)(Voltamm
     int32_t nSteps = (int32_t)(spanV / params.stepHeight);
     int8_t  dir    = ascending ? 1 : -1;
 
+    TickType_t lastWake = xTaskGetTickCount();
+    const TickType_t halfPeriodTicks = pdMS_TO_TICKS(halfPeriodMs);
+
     for (int32_t i = 0; i <= nSteps; i++) {
         if (AD5941_Driver::isAbortPending()) return;
 
@@ -201,12 +225,12 @@ void Voltammetry_Methods::runSWV(SWV_Params params, void (*dataCallback)(Voltamm
 
         // Forward pulse
         setVoltageBias(vStair + params.amplitude);
-        delay(halfPeriodMs);
+        vTaskDelayUntil(&lastWake, halfPeriodTicks);
         float iForward = readCurrentResponse();
 
         // Backward pulse
         setVoltageBias(vStair - params.amplitude);
-        delay(halfPeriodMs);
+        vTaskDelayUntil(&lastWake, halfPeriodTicks);
         float iBackward = readCurrentResponse();
 
         // Skip if either sample is bad

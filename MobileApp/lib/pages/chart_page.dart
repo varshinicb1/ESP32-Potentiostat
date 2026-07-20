@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../services/ble_service.dart';
 import '../services/csv_service.dart';
+import '../main.dart' show AnalyteXColors;
 
 class ChartPage extends StatefulWidget {
   final String techniqueName;
@@ -82,7 +83,7 @@ class _ChartPageState extends State<ChartPage> {
                 SizedBox(width: 8),
                 Text("Measurement completed successfully"),
               ]),
-              backgroundColor: Colors.green[700],
+              backgroundColor: AnalyteXColors.success,
               duration: const Duration(seconds: 3),
             ),
           );
@@ -93,7 +94,7 @@ class _ChartPageState extends State<ChartPage> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text("Device error: $detail"),
-              backgroundColor: Colors.red[700],
+              backgroundColor: AnalyteXColors.danger,
               duration: const Duration(seconds: 5),
             ),
           );
@@ -148,7 +149,7 @@ class _ChartPageState extends State<ChartPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Export failed: $e"),
-              backgroundColor: Colors.red[700]),
+              backgroundColor: AnalyteXColors.danger),
         );
       }
     }
@@ -185,16 +186,48 @@ class _ChartPageState extends State<ChartPage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text("Points: ${rawData.length}",
-                    style: const TextStyle(fontSize: 14)),
+                Text("${rawData.length} points",
+                    style: const TextStyle(
+                        fontSize: 13, color: AnalyteXColors.textMuted)),
                 if (plotSpots.length >= _maxPoints)
-                  const Text("⚠ Showing last 5000 pts",
-                      style: TextStyle(fontSize: 12, color: Colors.orange)),
-                Chip(
-                  label: Text(_measurementDone ? "Completed" : "Running",
-                      style: const TextStyle(fontSize: 12)),
-                  backgroundColor:
-                      _measurementDone ? Colors.green[800] : Colors.blue[800],
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 8),
+                    child: Text("Showing last 5000 pts",
+                        style: TextStyle(fontSize: 12, color: AnalyteXColors.amber)),
+                  ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: (_measurementDone
+                            ? AnalyteXColors.success
+                            : AnalyteXColors.teal)
+                        .withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 7,
+                        height: 7,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _measurementDone
+                              ? AnalyteXColors.success
+                              : AnalyteXColors.teal,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(_measurementDone ? "Completed" : "Running",
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: _measurementDone
+                                ? AnalyteXColors.success
+                                : AnalyteXColors.teal,
+                          )),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -255,7 +288,7 @@ class _ChartPageState extends State<ChartPage> {
                     icon: const Icon(Icons.stop),
                     label: const Text("Abort"),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red[700],
+                      backgroundColor: AnalyteXColors.danger,
                       foregroundColor: Colors.white,
                       minimumSize: const Size.fromHeight(48),
                     ),

@@ -1,4 +1,5 @@
 #include "Storage.h"
+#include "SharedSPIBus.h"
 
 // ===================================================================
 // Static member definitions
@@ -11,12 +12,26 @@ SemaphoreHandle_t Storage::sdMutex        = nullptr;
 // ===================================================================
 // Internal mutex helpers
 // ===================================================================
+// The SD card's chip-select is managed internally by the Arduino SD library
+// (via the default global SPI object), so unlike AD5941_Driver — where the
+// shared-bus lock is tied to the AD5941's own explicit CS toggle — there's
+// no single interception point here. Acquire the shared bus lock alongside
+// sdMutex instead: every SD operation in this file already goes through
+// acquireMutex()/releaseMutex(), so this covers all of them uniformly. See
+// SharedSPIBus.h for why this exists (the SD card, AD5941, and display/touch
+// all physically share one SPI bus).
 bool Storage::acquireMutex() {
     if (sdMutex == nullptr) return false;
-    return (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(100)) == pdTRUE);
+    if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(100)) != pdTRUE) return false;
+    if (!SharedSPIBus::lockBlocking()) {
+        xSemaphoreGive(sdMutex);
+        return false;
+    }
+    return true;
 }
 
 void Storage::releaseMutex() {
+    SharedSPIBus::unlock();
     if (sdMutex != nullptr) {
         xSemaphoreGive(sdMutex);
     }

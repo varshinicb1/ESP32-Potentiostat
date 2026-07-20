@@ -27,6 +27,7 @@ import threading
 import csv
 import os
 import time
+from collections import deque
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -80,6 +81,16 @@ class PotentiostatGUI(QMainWindow):
 
         # List of measurement data dicts (populated by _handle_incoming_data)
         self.rawData: list[dict] = []
+
+        # Plotted series, kept separate from rawData (which stays uncapped for
+        # full CSV export). Previously the plot was rebuilt via a fresh list
+        # comprehension over the *entire* rawData on every incoming point —
+        # O(n) work per point with no cap, so a long CA/EIS run degraded to
+        # O(n^2) overall and visibly stalled the GUI. deque(maxlen=...) gives
+        # O(1) amortized append-with-eviction (mirrors the mobile app's
+        # existing 5000-point cap, which this GUI never had).
+        self.plot_x: deque[float] = deque(maxlen=5000)
+        self.plot_y: deque[float] = deque(maxlen=5000)
 
         self._setup_ui()
 
@@ -481,6 +492,8 @@ class PotentiostatGUI(QMainWindow):
             return
 
         self.rawData.clear()
+        self.plot_x.clear()
+        self.plot_y.clear()
         self.curve.clear()
         self.export_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
@@ -585,6 +598,25 @@ class PotentiostatGUI(QMainWindow):
             self._update_status(f"Send error: {e}")
 
     # ──────────────────────────────────────────────────────────────
+    # Appends one point to the plotted series (capped, O(1) amortized) and
+    # pushes the update to pyqtgraph. Replaces the previous approach of
+    # rebuilding x/y via a fresh list comprehension over all of rawData on
+    # every single incoming point.
+    # ──────────────────────────────────────────────────────────────
+    def _append_plot_point(self, x: float, y: float):
+        self.plot_x.append(x)  # deques auto-evict the oldest point at maxlen
+        self.plot_y.append(y)
+        self.curve.setData(list(self.plot_x), list(self.plot_y))
+
+    def _update_point_count_label(self):
+        total = len(self.rawData)
+        if total > self.plot_x.maxlen:
+            self.point_count_label.setText(
+                f"Points: {total}  (plotting last {self.plot_x.maxlen})")
+        else:
+            self.point_count_label.setText(f"Points: {total}")
+
+    # ──────────────────────────────────────────────────────────────
     # Incoming data handler (runs on GUI thread via Qt signal)
     # ──────────────────────────────────────────────────────────────
     def _handle_incoming_data(self, data: dict):
@@ -599,30 +631,27 @@ class PotentiostatGUI(QMainWindow):
         idx      = self.method_select.currentIndex()
 
         if msg_type == "data":
-            self.rawData.append(data)   # ← was .add() — FIXED
+            self.rawData.append(data)   # ← was .add() — FIXED; kept uncapped for CSV export
 
             if idx == 0:   # CV: current vs voltage
-                x = [d.get("voltage", 0.0) for d in self.rawData]
-                y = [d.get("current", 0.0) for d in self.rawData]
+                px, py = data.get("voltage", 0.0), data.get("current", 0.0)
             elif idx == 1: # CA: current vs time  (was incorrectly using voltage)
-                x = [d.get("time",    0.0) for d in self.rawData]
-                y = [d.get("current", 0.0) for d in self.rawData]
+                px, py = data.get("time", 0.0), data.get("current", 0.0)
             elif idx == 2: # SWV: diff current vs voltage
-                x = [d.get("voltage",     0.0) for d in self.rawData]
-                y = [d.get("diffCurrent", 0.0) for d in self.rawData]
+                px, py = data.get("voltage", 0.0), data.get("diffCurrent", 0.0)
             else:
-                x, y = [], []
+                px, py = None, None
 
-            self.curve.setData(x, y)
-            self.point_count_label.setText(f"Points: {len(self.rawData)}")
+            if px is not None:
+                self._append_plot_point(px, py)
+
+            self._update_point_count_label()
 
         elif msg_type == "eis_data":
-            self.rawData.append(data)   # ← was .add() — FIXED
+            self.rawData.append(data)   # ← was .add() — FIXED; kept uncapped for CSV export
 
-            x = [d.get("realZ",  0.0)  for d in self.rawData]
-            y = [-d.get("imagZ", 0.0)  for d in self.rawData]
-            self.curve.setData(x, y)
-            self.point_count_label.setText(f"Points: {len(self.rawData)}")
+            self._append_plot_point(data.get("realZ", 0.0), -data.get("imagZ", 0.0))
+            self._update_point_count_label()
 
         elif msg_type == "diagnostics":
             logger.info("Diagnostics: %s", data)

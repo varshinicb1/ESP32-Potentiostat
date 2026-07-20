@@ -40,9 +40,12 @@ class BLEService extends ChangeNotifier {
     notifyListeners();
 
     _scanResultsSubscription = FlutterBluePlus.scanResults.listen((results) {
-      // Filter to show only VidyuthLabs / FreiStat devices
+      // Filter to show only AnalyteX devices (kept the legacy "VidyuthLabs"/
+      // "FreiStat" name fragments too so already-flashed field units with the
+      // old BLE advertised name still show up in the scanner).
       scanResults = results
           .where((r) =>
+              r.device.platformName.contains("AnalyteX") ||
               r.device.platformName.contains("FreiStat") ||
               r.device.platformName.contains("VidyuthLabs"))
           .toList();

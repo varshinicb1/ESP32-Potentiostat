@@ -6,6 +6,7 @@ lv_obj_t* Display_LVGL::mainScreen  = nullptr;
 lv_obj_t* Display_LVGL::chartScreen = nullptr;
 lv_obj_t* Display_LVGL::chart       = nullptr;
 lv_chart_series_t* Display_LVGL::series1 = nullptr;
+SemaphoreHandle_t Display_LVGL::lvglMutex = nullptr;
 
 // LVGL draw buffer — double-buffered for smooth rendering (1/5 of screen)
 #define LV_BUF_SIZE (320 * 240 / 5)
@@ -15,36 +16,52 @@ static lv_color_t buf2[LV_BUF_SIZE];
 // ===================================================================
 // LGFX_Potentiostat Constructor — hardware pin configuration
 // ===================================================================
+// Pin numbers below corrected against the real schematic/netlist
+// (AnalyteX/AnalyteX.kicad_pcb + production/netlist.ipc, cross-checked
+// against the official ESP32-S3-WROOM-1 datasheet pin table). Previous
+// values (sclk=36, mosi=35, miso=37, dc=21, cs=47, rst=38, touch cs=48,
+// touch int=40) did not match the board at all.
+//
+// The real wiring: MOSI/SCLK/MISO (GPIO11/12/13) are the SAME physical bus
+// used by AD5941_Driver (see the shared-bus note in AD5941_Driver.h) — this
+// display and its touch controller are NOT on a separate bus from the AD5941
+// as the pin numbers here previously implied. Only the CS/DC/RST/INT lines
+// are unique to this panel:
+//   net "LCD_CS"    -> GPIO38      net "LCD_RST" -> GPIO39
+//   net "LCD_DC"     -> GPIO40      net "LCD_BL"  -> GPIO41
+//   net "TOUCH_CS"  -> GPIO42      net "TOUCH_IRQ" -> GPIO47
 LGFX_Potentiostat::LGFX_Potentiostat() {
-    // SPI Bus (shared with display panel)
+    // SPI Bus (shared with the AD5941 and the microSD card — see the
+    // shared-bus mutex note in AD5941_Driver.h; this is NOT yet resolved).
     auto bus_cfg = _bus_instance.config();
     bus_cfg.spi_mode   = 0;
     bus_cfg.freq_write = 40000000; // 40 MHz write
     bus_cfg.freq_read  = 16000000; // 16 MHz read
-    bus_cfg.pin_sclk   = 36;
-    bus_cfg.pin_mosi   = 35;
-    bus_cfg.pin_miso   = 37;
-    bus_cfg.pin_dc     = 21;
+    bus_cfg.pin_sclk   = 12;
+    bus_cfg.pin_mosi   = 11;
+    bus_cfg.pin_miso   = 13;
+    bus_cfg.pin_dc     = 40;
     _bus_instance.config(bus_cfg);
     _panel_instance.setBus(&_bus_instance);
 
     // TFT Panel — ILI9341 2.8" 320×240
     auto panel_cfg = _panel_instance.config();
-    panel_cfg.pin_cs          = 47;
-    panel_cfg.pin_rst         = 38;
+    panel_cfg.pin_cs          = 38;
+    panel_cfg.pin_rst         = 39;
     // pin_bl is not a Panel_Device field in LovyanGFX v1.x;
-    // backlight is controlled separately via direct GPIO.
+    // backlight is controlled separately via direct GPIO (see init(), GPIO41).
     panel_cfg.panel_width     = 240;
     panel_cfg.panel_height    = 320;
     panel_cfg.offset_x        = 0;
     panel_cfg.offset_y        = 0;
     _panel_instance.config(panel_cfg);
 
-    // Touchscreen — XPT2046 resistive (on SPI2_HOST, separate from display)
+    // Touchscreen — XPT2046 resistive, on the SAME physical bus as the panel
+    // above (not a separate SPI2_HOST bus as previously configured — that
+    // was based on the same wrong assumption of a dedicated display bus).
     auto touch_cfg = _touch_instance.config();
-    touch_cfg.pin_cs   = 48;
-    touch_cfg.pin_int  = 40;
-    touch_cfg.spi_host = SPI2_HOST;
+    touch_cfg.pin_cs   = 42;
+    touch_cfg.pin_int  = 47;
     touch_cfg.x_min    = 300;
     touch_cfg.x_max    = 3900;
     touch_cfg.y_min    = 200;
@@ -87,12 +104,21 @@ void Display_LVGL::my_touchpad_read(lv_indev_drv_t* indev_driver, lv_indev_data_
 // init()
 // ===================================================================
 void Display_LVGL::init() {
+    // Must exist before any other Display_LVGL entry point can be called from
+    // TaskUI (Core 0) or TaskDAQ (Core 1). init() itself runs single-threaded
+    // from setup(), before either task starts.
+    lvglMutex = xSemaphoreCreateRecursiveMutex();
+    configASSERT(lvglMutex != nullptr);
+
     tft.init();
     tft.setRotation(1); // Landscape: 320x240
 
-    // Enable backlight directly on GPIO 45 (LovyanGFX v1.x configures BL separately)
-    pinMode(45, OUTPUT);
-    digitalWrite(45, HIGH);
+    // Enable backlight directly on GPIO41 (net "LCD_BL" — corrected; was
+    // GPIO45, which is both the wrong net AND a boot strapping pin on this
+    // module (VDD_SPI voltage select) that shouldn't be repurposed at all.
+    // LovyanGFX v1.x configures BL separately from the panel_cfg struct.
+    pinMode(41, OUTPUT);
+    digitalWrite(41, HIGH);
 
     lv_init();
 
@@ -121,7 +147,16 @@ void Display_LVGL::init() {
 // handleLVGL() — must be called every ~5 ms from TaskUI
 // ===================================================================
 void Display_LVGL::handleLVGL() {
-    lv_timer_handler();
+    // lv_timer_handler() is what actually drives the shared physical SPI bus
+    // (panel flush + touch poll) — see SharedSPIBus.h. Bounded/skip-if-busy:
+    // dropping one 5ms UI tick is harmless, unlike a dropped AD5941 register
+    // transaction, so this doesn't block the way AD5941_Driver::setCS() does.
+    if (!SharedSPIBus::lockBounded(20)) return;
+    if (xSemaphoreTakeRecursive(lvglMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+        lv_timer_handler();
+        xSemaphoreGiveRecursive(lvglMutex);
+    }
+    SharedSPIBus::unlock();
 }
 
 // ===================================================================
@@ -144,6 +179,11 @@ static void btn_event_cb(lv_event_t* e) {
 // to prevent LVGL heap leaks on repeated "Back" navigation.
 // ===================================================================
 void Display_LVGL::buildMainScreen() {
+    // Recursive: may be called re-entrantly from within handleLVGL() (the chart
+    // screen's "Back" button event fires synchronously inside lv_timer_handler(),
+    // which is called while TaskUI already holds this same mutex).
+    if (xSemaphoreTakeRecursive(lvglMutex, pdMS_TO_TICKS(50)) != pdTRUE) return;
+
     // Delete old screen objects first
     if (chartScreen) {
         lv_obj_del(chartScreen);
@@ -161,7 +201,7 @@ void Display_LVGL::buildMainScreen() {
 
     // Title
     lv_obj_t* title = lv_label_create(mainScreen);
-    lv_label_set_text(title, "VidyuthLabs Potentiostat");
+    lv_label_set_text(title, "AnalyteX");
     lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0x64B5F6), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
@@ -200,6 +240,7 @@ void Display_LVGL::buildMainScreen() {
     makeBtn("Impedance (EIS)",    LV_ALIGN_CENTER,  75,  35);
 
     lv_scr_load(mainScreen);
+    xSemaphoreGiveRecursive(lvglMutex);
 }
 
 // ===================================================================
@@ -207,6 +248,8 @@ void Display_LVGL::buildMainScreen() {
 // Deletes any existing chartScreen before creating a new one.
 // ===================================================================
 void Display_LVGL::showChartScreen(const char* techniqueName) {
+    if (xSemaphoreTakeRecursive(lvglMutex, pdMS_TO_TICKS(50)) != pdTRUE) return;
+
     // Destroy old chart screen to free LVGL heap
     if (chartScreen) {
         lv_obj_del(chartScreen);
@@ -251,12 +294,18 @@ void Display_LVGL::showChartScreen(const char* techniqueName) {
     series1 = lv_chart_add_series(chart, lv_palette_main(LV_PALETTE_CYAN), LV_CHART_AXIS_PRIMARY_Y);
 
     lv_scr_load(chartScreen);
+    xSemaphoreGiveRecursive(lvglMutex);
 }
 
 // ===================================================================
 // addChartPoint() — appends a new Y-value to series1
 // ===================================================================
 void Display_LVGL::addChartPoint(float /*x*/, float y) {
+    // Called from TaskDAQ (Core 1) once per sample — must not race TaskUI
+    // (Core 0), which renders/deletes these same objects via handleLVGL()
+    // and screen navigation. Non-blocking-ish bounded wait: if the UI is mid
+    // screen-rebuild this sample is dropped rather than stalling the DAQ loop.
+    if (xSemaphoreTakeRecursive(lvglMutex, pdMS_TO_TICKS(20)) != pdTRUE) return;
     if (chart && series1) {
         // y is expected in µA (caller multiplies raw amps by 1e6)
         // LVGL chart uses integer values; clamp to int32 range
@@ -266,18 +315,21 @@ void Display_LVGL::addChartPoint(float /*x*/, float y) {
         lv_chart_set_next_value(chart, series1, yInt);
         lv_chart_refresh(chart);
     }
+    xSemaphoreGiveRecursive(lvglMutex);
 }
 
 // ===================================================================
 // clearChart()
 // ===================================================================
 void Display_LVGL::clearChart() {
+    if (xSemaphoreTakeRecursive(lvglMutex, pdMS_TO_TICKS(50)) != pdTRUE) return;
     if (chart && series1) {
         // lv_chart_clear_series() was removed in LVGL 8.x.
         // Reset all buffered points to the 'no data' sentinel instead.
         lv_chart_set_all_value(chart, series1, LV_CHART_POINT_NONE);
         lv_chart_refresh(chart);
     }
+    xSemaphoreGiveRecursive(lvglMutex);
 }
 
 // ===================================================================
@@ -285,6 +337,7 @@ void Display_LVGL::clearChart() {
 // this is called only when halting, so leaking the object is acceptable)
 // ===================================================================
 void Display_LVGL::showErrorScreen(const char* errorMessage) {
+    if (xSemaphoreTakeRecursive(lvglMutex, pdMS_TO_TICKS(50)) != pdTRUE) return;
     lv_obj_t* errorScreen = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(errorScreen, lv_color_hex(0x7F0000), 0);
 
@@ -318,14 +371,16 @@ void Display_LVGL::showErrorScreen(const char* errorMessage) {
     lv_obj_align(instr, LV_ALIGN_BOTTOM_MID, 0, -15);
 
     lv_scr_load(errorScreen);
+    xSemaphoreGiveRecursive(lvglMutex);
 }
 
 // ===================================================================
 // showStatusBar() — overlays a small status bar on the current screen
 // ===================================================================
 void Display_LVGL::showStatusBar(const char* statusText, uint32_t color) {
+    if (xSemaphoreTakeRecursive(lvglMutex, pdMS_TO_TICKS(50)) != pdTRUE) return;
     lv_obj_t* activeScreen = lv_scr_act();
-    if (!activeScreen) return;
+    if (!activeScreen) { xSemaphoreGiveRecursive(lvglMutex); return; }
 
     lv_obj_t* bar = lv_obj_create(activeScreen);
     lv_obj_set_size(bar, 320, 22);
@@ -340,4 +395,5 @@ void Display_LVGL::showStatusBar(const char* statusText, uint32_t color) {
     lv_label_set_text(label, statusText);
     lv_obj_set_style_text_color(label, lv_color_white(), 0);
     lv_obj_center(label);
+    xSemaphoreGiveRecursive(lvglMutex);
 }
