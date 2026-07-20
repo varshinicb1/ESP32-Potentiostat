@@ -223,21 +223,35 @@ void Display_LVGL::buildMainScreen() {
     lv_style_set_shadow_color(&btn_style, lv_color_hex(0x0D47A1));
 
     // Helper lambda to create a technique button
+    //
+    // Button size/font found wrong by rendering this exact screen through an
+    // offscreen LVGL simulator (real lvgl 8.3.11 + this project's lv_conf.h,
+    // no mockup): at 130x50 with the theme's default font, "Cyclic
+    // Voltammetry" and "Chronoamperometry" got clipped mid-word by LVGL's
+    // child-clipping — never visible from reading the code, only from
+    // actually rendering it. Widened to 150 (still fits two 150-wide buttons
+    // + gaps in the 320px width) and switched the label to montserrat_12
+    // with wrap mode so long labels break onto a second line inside the
+    // 50px-tall button instead of overflowing.
     auto makeBtn = [&](const char* label, lv_align_t align, int32_t xOff, int32_t yOff) {
         lv_obj_t* btn = lv_btn_create(mainScreen);
         lv_obj_add_style(btn, &btn_style, 0);
-        lv_obj_set_size(btn, 130, 50);
+        lv_obj_set_size(btn, 150, 50);
         lv_obj_align(btn, align, xOff, yOff);
         lv_obj_t* lbl = lv_label_create(btn);
+        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
+        lv_label_set_long_mode(lbl, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(lbl, 140);
+        lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_text(lbl, label);
         lv_obj_center(lbl);
         lv_obj_add_event_cb(btn, btn_event_cb, LV_EVENT_CLICKED, NULL);
     };
 
-    makeBtn("Cyclic Voltammetry", LV_ALIGN_CENTER, -75, -30);
-    makeBtn("Chronoamperometry",  LV_ALIGN_CENTER,  75, -30);
-    makeBtn("Square Wave Volt",   LV_ALIGN_CENTER, -75,  35);
-    makeBtn("Impedance (EIS)",    LV_ALIGN_CENTER,  75,  35);
+    makeBtn("Cyclic Voltammetry", LV_ALIGN_CENTER, -78, -30);
+    makeBtn("Chronoamperometry",  LV_ALIGN_CENTER,  78, -30);
+    makeBtn("Square Wave Volt",   LV_ALIGN_CENTER, -78,  35);
+    makeBtn("Impedance (EIS)",    LV_ALIGN_CENTER,  78,  35);
 
     lv_scr_load(mainScreen);
     xSemaphoreGiveRecursive(lvglMutex);
@@ -262,8 +276,13 @@ void Display_LVGL::showChartScreen(const char* techniqueName) {
     lv_obj_set_style_bg_color(chartScreen, lv_color_hex(0x121212), 0);
 
     // Technique Title
+    // "—" (em-dash) previously here rendered as a missing-glyph box on real
+    // hardware — found by rendering this screen through an offscreen LVGL
+    // simulator: LVGL's built-in Montserrat fonts only cover ASCII +
+    // Latin-1 Supplement, not general punctuation like U+2014. Plain hyphen
+    // renders correctly at every enabled font size.
     lv_obj_t* title = lv_label_create(chartScreen);
-    lv_label_set_text_fmt(title, "%s — Live Plot", techniqueName);
+    lv_label_set_text_fmt(title, "%s - Live Plot", techniqueName);
     lv_obj_set_style_text_color(title, lv_color_hex(0x64B5F6), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 5);
 

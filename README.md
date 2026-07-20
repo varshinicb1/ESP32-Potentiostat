@@ -117,8 +117,8 @@ arduino-cli compile --fqbn esp32:esp32:esp32s3:PartitionScheme=huge_app Firmware
 ```
 
 ```
-Sketch uses 1728981 bytes (54%) of program storage space. Maximum is 3145728 bytes.
-Global variables use 132028 bytes (40%) of dynamic memory, leaving 195652 bytes for local variables. Maximum is 327680 bytes.
+Sketch uses 1740497 bytes (55%) of program storage space. Maximum is 3145728 bytes.
+Global variables use 132036 bytes (40%) of dynamic memory, leaving 195644 bytes for local variables. Maximum is 327680 bytes.
 ```
 Full log: [`docs/firmware_compile_log.txt`](docs/firmware_compile_log.txt).
 
@@ -152,8 +152,29 @@ Launched directly (`python DesktopGUI/main_gui.py`) and screenshotted:
 
 Confirms the app starts, the connection panel and SWV parameter form render correctly with their default values, and the technique tab switching (CV/CA/SWV/EIS) works. Same caveat as above — no real device connected, so this validates UI rendering only.
 
-### LVGL on-device UI — not verified this pass, and why
-No LVGL PC/SDL simulator was built for the on-device touchscreen UI (`Display_LVGL.cpp`). This machine has no native C compiler on `PATH` (`gcc`/`clang` — Visual Studio's MSVC is installed but not configured on this shell), and building LVGL's official simulator harness from scratch — porting the display-flush callback away from the real LovyanGFX/SPI panel driver to an SDL backend — was judged a large enough side-project for uncertain enough payoff (the on-device screens are simple and already reviewed in code) that it wasn't worth doing blind rather than doing carelessly. The real ESP32 compile above does confirm the LVGL/LovyanGFX code compiles correctly for the target; it does not confirm the touchscreen layout renders or the touch controller responds correctly. Flashing real hardware is the actual next verification step here.
+### LVGL on-device UI — rendered offscreen, real bugs found and fixed
+
+A native MinGW-w64 GCC toolchain (`C:\msys64\mingw64`) turned out to be present on this machine after all. Built a small offscreen simulator that links the **exact vendored `lvgl` 8.3.11 library and `lv_conf.h`** the firmware compiles against (verified: `LV_COLOR_DEPTH=16`, `LV_USE_BTN`/`LABEL`/`CHART=1`, Montserrat 8–48 all enabled) — not a mockup, not a different library version. `Display_LVGL.cpp`'s screen-building calls (`buildMainScreen()`, `showChartScreen()`, `showErrorScreen()`) were copied verbatim into the sim; only LovyanGFX/SPI/FreeRTOS-specific plumbing was stripped, since none of that affects what gets drawn. The flush callback writes straight into a heap framebuffer (no window, no display, no screenshot — nothing to leak) which gets dumped to a BMP.
+
+Rendering the real screen-building code surfaced two actual bugs invisible from reading the source:
+
+| Main screen (before) | Main screen (after fix) |
+|---|---|
+| ![Before: clipped button labels](docs/screenshots/lvgl_main_screen_before_fix.png) | ![After: labels fit](docs/screenshots/lvgl_main_screen.png) |
+
+"Cyclic Voltammetry" and "Chronoamperometry" were clipped mid-word — the 130×50px buttons were too narrow for those labels at the theme's default font, and LVGL's child-clipping just cut off the overflow. Fixed by widening the buttons to 150px and switching the labels to `montserrat_12` with wrap mode enabled.
+
+| Chart screen (before) | Chart screen (after fix) |
+|---|---|
+| ![Before: missing glyph box](docs/screenshots/lvgl_chart_screen_before_fix.png) | ![After: renders correctly](docs/screenshots/lvgl_chart_screen.png) |
+
+The em-dash in `"%s — Live Plot"` rendered as a missing-glyph box — LVGL's built-in Montserrat fonts only cover ASCII + Latin-1 Supplement, not general punctuation like U+2014. Fixed by using a plain hyphen instead.
+
+![Error screen](docs/screenshots/lvgl_error_screen.png)
+
+The error screen (icon, wrapped message, instruction) rendered correctly with no changes needed.
+
+**What this confirms:** the actual widget layout, font choices, and text now render correctly for all three screens, using the real library and config the firmware ships with. **What it doesn't confirm:** the LovyanGFX SPI panel driver itself, the XPT2046 touch controller, or the shared-SPI-bus arbitration under real FreeRTOS scheduling — none of that runs in this offscreen sim. Flashing real hardware is still the actual next verification step for those.
 
 ---
 
