@@ -64,6 +64,13 @@ arduino-cli compile --fqbn esp32:esp32:esp32s3:PartitionScheme=huge_app Firmware
 arduino-cli upload -p <COM_PORT> --fqbn esp32:esp32:esp32s3:PartitionScheme=huge_app Firmware/ESP32_AD5941_Main
 ```
 
+> **Flashing to a real board for the first time?** Follow
+> [`docs/HARDWARE_BRINGUP.md`](docs/HARDWARE_BRINGUP.md) — a stage-by-stage
+> checklist keyed to the exact serial POST strings, the pin map, and the
+> known-uncertain items (set `RCAL_OHM` first, test on a dummy resistor before a
+> real sample). It's built to turn "it doesn't work" into "step N failed, check
+> file X".
+
 ### 2. Running the Desktop GUI
 
 The Desktop GUI requires Python 3.10+ and a few python dependencies.
