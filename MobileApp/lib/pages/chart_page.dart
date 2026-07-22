@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../services/ble_service.dart';
 import '../services/csv_service.dart';
-import '../main.dart' show AnalyteXColors;
+import '../main.dart' show AX, GraticuleBackground;
 
 class ChartPage extends StatefulWidget {
   final String techniqueName;
@@ -83,7 +83,7 @@ class _ChartPageState extends State<ChartPage> {
                 SizedBox(width: 8),
                 Text("Measurement completed successfully"),
               ]),
-              backgroundColor: AnalyteXColors.success,
+              backgroundColor: AX.success,
               duration: const Duration(seconds: 3),
             ),
           );
@@ -94,7 +94,7 @@ class _ChartPageState extends State<ChartPage> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text("Device error: $detail"),
-              backgroundColor: AnalyteXColors.danger,
+              backgroundColor: AX.danger,
               duration: const Duration(seconds: 5),
             ),
           );
@@ -149,7 +149,7 @@ class _ChartPageState extends State<ChartPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Export failed: $e"),
-              backgroundColor: AnalyteXColors.danger),
+              backgroundColor: AX.danger),
         );
       }
     }
@@ -165,155 +165,223 @@ class _ChartPageState extends State<ChartPage> {
   @override
   Widget build(BuildContext context) {
     final spots = plotSpots.isEmpty ? [const FlSpot(0, 0)] : plotSpots;
+    final running = !_measurementDone;
+    final accent = running ? AX.signal : AX.ok;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text("${widget.techniqueName} — Live Plot"),
-        actions: [
-          if (rawData.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.share),
-              tooltip: "Export CSV",
-              onPressed: _exportData,
-            ),
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            // Status row
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      body: GraticuleBackground(
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Column(
               children: [
-                Text("${rawData.length} points",
-                    style: const TextStyle(
-                        fontSize: 13, color: AnalyteXColors.textMuted)),
-                if (plotSpots.length >= _maxPoints)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 8),
-                    child: Text("Showing last 5000 pts",
-                        style: TextStyle(fontSize: 12, color: AnalyteXColors.amber)),
-                  ),
+                // ── Header: back / technique / status ──────────────
+                Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.arrow_back, color: AX.textMid),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(widget.techniqueName,
+                            style: const TextStyle(
+                                fontFamily: 'PlexMono',
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 1)),
+                        const Text("LIVE ACQUISITION",
+                            style: TextStyle(
+                                fontFamily: 'PlexMono',
+                                fontSize: 9.5,
+                                letterSpacing: 1.8,
+                                color: AX.textLo)),
+                      ],
+                    ),
+                    const Spacer(),
+                    _statusPill(accent),
+                  ],
+                ),
+                const SizedBox(height: 14),
+
+                // ── Readout bar ────────────────────────────────────
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
-                    color: (_measurementDone
-                            ? AnalyteXColors.success
-                            : AnalyteXColors.teal)
-                        .withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(20),
+                    color: AX.panel,
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+                    border: Border.all(color: AX.hairline),
                   ),
                   child: Row(
-                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Container(
-                        width: 7,
-                        height: 7,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: _measurementDone
-                              ? AnalyteXColors.success
-                              : AnalyteXColors.teal,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(_measurementDone ? "Completed" : "Running",
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: _measurementDone
-                                ? AnalyteXColors.success
-                                : AnalyteXColors.teal,
-                          )),
+                      _readout("PTS", "${rawData.length}"),
+                      const SizedBox(width: 20),
+                      _readout("Y", _yAxisLabel),
+                      const SizedBox(width: 20),
+                      _readout("X", _xAxisLabel),
+                      const Spacer(),
+                      if (plotSpots.length >= _maxPoints)
+                        const Text("◂ LAST 5000",
+                            style: TextStyle(
+                                fontFamily: 'PlexMono', fontSize: 10, color: AX.amber)),
                     ],
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 12),
 
-            // Chart
-            Expanded(
-              child: Card(
-                elevation: 4,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 16, 16, 8),
-                  child: LineChart(
-                    LineChartData(
-                      lineBarsData: [
-                        LineChartBarData(
-                          spots: spots,
-                          isCurved: false,
-                          barWidth: 1.5,
-                          color: Theme.of(context).primaryColor,
-                          dotData: const FlDotData(show: false),
-                        ),
-                      ],
-                      titlesData: FlTitlesData(
-                        topTitles: const AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
-                        rightTitles: const AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
-                        leftTitles: AxisTitles(
-                          axisNameWidget: RotatedBox(
-                            quarterTurns: 3,
-                            child: Text(_yAxisLabel,
-                                style: const TextStyle(fontSize: 11)),
+                // ── Scope screen ───────────────────────────────────
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(6, 14, 14, 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0A100C),
+                      borderRadius: const BorderRadius.vertical(bottom: Radius.circular(4)),
+                      border: Border.all(color: AX.hairline),
+                    ),
+                    child: LineChart(
+                      LineChartData(
+                        lineBarsData: [
+                          LineChartBarData(
+                            spots: spots,
+                            isCurved: false,
+                            barWidth: 1.6,
+                            color: AX.signal,
+                            dotData: const FlDotData(show: false),
+                            belowBarData: BarAreaData(
+                              show: true,
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  AX.signal.withValues(alpha: 0.18),
+                                  AX.signal.withValues(alpha: 0.0),
+                                ],
+                              ),
+                            ),
                           ),
-                          sideTitles: const SideTitles(
-                              showTitles: true, reservedSize: 44),
+                        ],
+                        titlesData: FlTitlesData(
+                          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                          leftTitles: const AxisTitles(
+                            sideTitles: SideTitles(
+                                showTitles: true, reservedSize: 42,
+                                getTitlesWidget: _monoAxis),
+                          ),
+                          bottomTitles: const AxisTitles(
+                            sideTitles: SideTitles(
+                                showTitles: true, reservedSize: 26,
+                                getTitlesWidget: _monoAxis),
+                          ),
                         ),
-                        bottomTitles: AxisTitles(
-                          axisNameWidget: Text(_xAxisLabel,
-                              style: const TextStyle(fontSize: 11)),
-                          sideTitles: const SideTitles(
-                              showTitles: true, reservedSize: 28),
+                        gridData: FlGridData(
+                          show: true,
+                          getDrawingHorizontalLine: (v) =>
+                              const FlLine(color: Color(0xFF16241C), strokeWidth: 1),
+                          getDrawingVerticalLine: (v) =>
+                              const FlLine(color: Color(0xFF16241C), strokeWidth: 1),
+                        ),
+                        borderData: FlBorderData(
+                          show: true,
+                          border: Border.all(color: AX.hairline),
                         ),
                       ),
-                      gridData: const FlGridData(show: true),
-                      borderData: FlBorderData(show: true),
                     ),
                   ),
                 ),
-              ),
-            ),
-            const SizedBox(height: 16),
+                const SizedBox(height: 16),
 
-            // Action buttons
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    icon: const Icon(Icons.stop),
-                    label: const Text("Abort"),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AnalyteXColors.danger,
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size.fromHeight(48),
+                // ── Actions ────────────────────────────────────────
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.stop, size: 18),
+                        label: const Text("ABORT", style: TextStyle(letterSpacing: 1)),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AX.danger,
+                          side: BorderSide(color: AX.danger.withValues(alpha: 0.6)),
+                          minimumSize: const Size.fromHeight(50),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                          textStyle: const TextStyle(fontFamily: 'PlexSans', fontWeight: FontWeight.w700),
+                        ),
+                        onPressed: _measurementDone ? null : () {
+                          _sendAbort();
+                          Navigator.pop(context);
+                        },
+                      ),
                     ),
-                    onPressed: _measurementDone ? null : () {
-                      _sendAbort();
-                      Navigator.pop(context);
-                    },
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    icon: const Icon(Icons.download),
-                    label: const Text("Export CSV"),
-                    style: ElevatedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(48),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.download, size: 18),
+                        label: const Text("EXPORT CSV", style: TextStyle(letterSpacing: 0.5)),
+                        style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(50)),
+                        onPressed: rawData.isNotEmpty ? _exportData : null,
+                      ),
                     ),
-                    onPressed: rawData.isNotEmpty ? _exportData : null,
-                  ),
+                  ],
                 ),
               ],
             ),
-          ],
+          ),
         ),
       ),
+    );
+  }
+
+  Widget _statusPill(Color accent) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(3),
+        border: Border.all(color: accent.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7, height: 7,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: accent,
+              boxShadow: [BoxShadow(color: accent.withValues(alpha: 0.6), blurRadius: 6)],
+            ),
+          ),
+          const SizedBox(width: 7),
+          Text(_measurementDone ? "DONE" : "REC",
+              style: TextStyle(
+                  fontFamily: 'PlexMono',
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1,
+                  color: accent)),
+        ],
+      ),
+    );
+  }
+
+  Widget _readout(String k, String v) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text("$k ",
+            style: const TextStyle(fontFamily: 'PlexMono', fontSize: 10, color: AX.textLo, letterSpacing: 1)),
+        Text(v,
+            style: const TextStyle(fontFamily: 'PlexMono', fontSize: 12.5, color: AX.signal, fontWeight: FontWeight.w500)),
+      ],
+    );
+  }
+
+  static Widget _monoAxis(double value, TitleMeta meta) {
+    if (value == meta.min || value == meta.max) return const SizedBox.shrink();
+    return Text(
+      value.abs() >= 1000 ? "${(value / 1000).toStringAsFixed(0)}k" : value.toStringAsFixed(1),
+      style: const TextStyle(fontFamily: 'PlexMono', fontSize: 9, color: AX.textLo),
     );
   }
 }

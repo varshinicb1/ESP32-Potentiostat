@@ -2,8 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/ble_service.dart';
 import '../models/material_profile.dart';
-import '../main.dart' show AnalyteXColors;
+import '../main.dart' show AX, GraticuleBackground, SignalTrace;
 import 'chart_page.dart';
+
+// Small shared bits for the instrument look.
+const _eyebrow = TextStyle(
+  fontFamily: 'PlexMono',
+  fontSize: 11,
+  fontWeight: FontWeight.w500,
+  letterSpacing: 2.0,
+  color: AX.textMid,
+);
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -91,172 +100,113 @@ class _HomePageState extends State<HomePage> {
     final canStart = ble.isConnected && (_advancedMode || _selectedProfile != null);
 
     return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 20,
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 30,
-              height: 30,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: const LinearGradient(
-                  colors: [AnalyteXColors.teal, AnalyteXColors.tealDim],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-              ),
-              alignment: Alignment.center,
-              child: const Icon(Icons.bolt, size: 18, color: AnalyteXColors.ink),
-            ),
-            const SizedBox(width: 10),
-            const Text("AnalyteX",
-                style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 0.5)),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            tooltip: "Scan for devices",
-            onPressed: () => _showDeviceScanner(context, ble),
-          ),
-          const SizedBox(width: 4),
-        ],
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _connectionBanner(ble),
-              const SizedBox(height: 20),
+      body: GraticuleBackground(
+        child: SafeArea(
+          child: CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(child: _hero(ble)),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 4, 18, 28),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _connectionStrip(ble),
+                      const SizedBox(height: 26),
 
-              // ── Mode toggle: material profile (default) vs. manual/advanced ──
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _advancedMode ? "ADVANCED · MANUAL PARAMETERS" : "SELECT A TEST",
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12,
-                        letterSpacing: 1.0,
-                        color: AnalyteXColors.textMuted,
-                      ),
-                    ),
-                  ),
-                  TextButton.icon(
-                    icon: Icon(_advancedMode ? Icons.list_alt : Icons.tune, size: 16),
-                    label: Text(_advancedMode ? "Use Profile" : "Advanced"),
-                    onPressed: () => setState(() => _advancedMode = !_advancedMode),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-
-              if (!_advancedMode) ...[
-                // ── Material profile picker ─────────────────────────
-                // Default UX for the actual target users (food-safety
-                // inspector, water-utility technician) — pick what you're
-                // testing for, not how to configure a voltammetric sweep.
-                // See materials-library-and-applications.md §6.
-                if (_profilesLoading)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 32),
-                    child: Center(child: CircularProgressIndicator(color: AnalyteXColors.teal)),
-                  )
-                else if (_profiles.isEmpty)
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        children: const [
-                          Icon(Icons.info_outline, color: AnalyteXColors.textMuted),
-                          SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              "No material profiles available. Use Advanced mode to configure a scan manually.",
-                              style: TextStyle(color: AnalyteXColors.textMuted, fontSize: 13),
-                            ),
+                      // ── Mode toggle ──────────────────────────────
+                      Row(
+                        children: [
+                          Text(
+                            _advancedMode ? "MANUAL PARAMETERS" : "SELECT A TEST",
+                            style: _eyebrow,
+                          ),
+                          const Spacer(),
+                          TextButton.icon(
+                            icon: Icon(_advancedMode ? Icons.list_alt : Icons.tune, size: 15),
+                            label: Text(_advancedMode ? "PROFILES" : "ADVANCED"),
+                            onPressed: () => setState(() => _advancedMode = !_advancedMode),
                           ),
                         ],
                       ),
-                    ),
-                  )
-                else
-                  _profileCard(),
-              ] else ...[
-                // ── Technique selector (manual/advanced) ────────────
-                DropdownButtonFormField<String>(
-                  value: selectedMethod,
-                  decoration: const InputDecoration(
-                    labelText: "Electrochemical Method",
-                    prefixIcon: Icon(Icons.science),
-                  ),
-                  items: const [
-                    DropdownMenuItem(value: "CV",  child: Text("Cyclic Voltammetry (CV)")),
-                    DropdownMenuItem(value: "CA",  child: Text("Chronoamperometry (CA)")),
-                    DropdownMenuItem(value: "SWV", child: Text("Square Wave Voltammetry (SWV)")),
-                    DropdownMenuItem(value: "EIS", child: Text("Electrochemical Impedance (EIS)")),
-                  ],
-                  onChanged: (val) => setState(() => selectedMethod = val!),
-                ),
-                const SizedBox(height: 16),
+                      const SizedBox(height: 12),
 
-                // ── Dynamic parameter form ──────────────────────────
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 200),
-                  child: KeyedSubtree(
-                    key: ValueKey(selectedMethod),
-                    child: _buildForm(),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 24),
+                      if (!_advancedMode) ...[
+                        if (_profilesLoading)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 32),
+                            child: Center(child: CircularProgressIndicator(color: AX.signal)),
+                          )
+                        else if (_profiles.isEmpty)
+                          Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Row(
+                                children: const [
+                                  Icon(Icons.info_outline, color: AX.textMid),
+                                  SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      "No material profiles available. Use Advanced mode to configure a scan manually.",
+                                      style: TextStyle(color: AX.textMid, fontSize: 13),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                        else
+                          _profileCard(),
+                      ] else ...[
+                        DropdownButtonFormField<String>(
+                          value: selectedMethod,
+                          decoration: const InputDecoration(
+                            labelText: "METHOD",
+                            prefixIcon: Icon(Icons.science_outlined, color: AX.textMid),
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: "CV",  child: Text("Cyclic Voltammetry (CV)")),
+                            DropdownMenuItem(value: "CA",  child: Text("Chronoamperometry (CA)")),
+                            DropdownMenuItem(value: "SWV", child: Text("Square Wave Voltammetry (SWV)")),
+                            DropdownMenuItem(value: "EIS", child: Text("Electrochemical Impedance (EIS)")),
+                          ],
+                          onChanged: (val) => setState(() => selectedMethod = val!),
+                        ),
+                        const SizedBox(height: 16),
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 200),
+                          child: KeyedSubtree(
+                            key: ValueKey(selectedMethod),
+                            child: _buildForm(),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 26),
 
-              // ── Start button ────────────────────────────────────
-              ElevatedButton.icon(
-                icon: const Icon(Icons.play_arrow_rounded, size: 22),
-                label: const Text("Start Measurement",
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(54),
-                ),
-                onPressed: canStart ? () => _startMeasurement(ble) : null,
-              ),
-              if (!canStart) ...[
-                const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      ble.isConnected ? Icons.checklist : Icons.bluetooth_searching,
-                      size: 15,
-                      color: AnalyteXColors.textMuted,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      ble.isConnected
-                          ? "Select a test above to continue"
-                          : "Connect a device to begin",
-                      style: const TextStyle(color: AnalyteXColors.textMuted, fontSize: 13),
-                    ),
-                  ],
-                ),
-              ],
+                      // ── Start (arm) button ───────────────────────
+                      _startButton(ble, canStart),
+                      if (!canStart) ...[
+                        const SizedBox(height: 12),
+                        Center(
+                          child: Text(
+                            ble.isConnected
+                                ? "▸ SELECT A TEST TO CONTINUE"
+                                : "▸ CONNECT A DEVICE TO BEGIN",
+                            style: const TextStyle(
+                              fontFamily: 'PlexMono',
+                              fontSize: 11,
+                              letterSpacing: 1.5,
+                              color: AX.textLo,
+                            ),
+                          ),
+                        ),
+                      ],
 
-              const SizedBox(height: 32),
-              _howItWorks(),
-              const SizedBox(height: 28),
-              Center(
-                child: Text(
-                  "VidyuthLabs Technologies Pvt Ltd",
-                  style: TextStyle(
-                    fontSize: 11,
-                    letterSpacing: 0.5,
-                    color: AnalyteXColors.textMuted.withValues(alpha: 0.6),
+                      const SizedBox(height: 34),
+                      _workflowStrip(),
+                      const SizedBox(height: 26),
+                      const _FooterMark(),
+                    ],
                   ),
                 ),
               ),
@@ -267,83 +217,147 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // ── Connection status banner ──────────────────────────────────
-  // Replaces the old corner-chip: for a device sold to non-engineers,
-  // "am I connected" needs to be the loudest thing on screen, not a
-  // 12px label tucked into the AppBar.
-  Widget _connectionBanner(BLEService ble) {
-    final connected = ble.isConnected;
+  // ── Hero: wordmark + live signal trace + scan action ──────────
+  Widget _hero(BLEService ble) {
     return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: connected
-            ? AnalyteXColors.success.withValues(alpha: 0.12)
-            : AnalyteXColors.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: connected
-              ? AnalyteXColors.success.withValues(alpha: 0.4)
-              : AnalyteXColors.outline,
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: AX.hairline)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              // Instrument mark: a bracketed "AX" in mono, like a device label
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  border: Border.all(color: AX.signal, width: 1.5),
+                  borderRadius: BorderRadius.circular(3),
+                ),
+                child: const Text(
+                  "AX",
+                  style: TextStyle(
+                    fontFamily: 'PlexMono',
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                    height: 1.0,
+                    color: AX.signal,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  Text("AnalyteX",
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, letterSpacing: -0.3, height: 1.05)),
+                  Text("ELECTROCHEMICAL ANALYZER",
+                      style: TextStyle(fontFamily: 'PlexMono', fontSize: 9.5, letterSpacing: 1.8, color: AX.textLo)),
+                ],
+              ),
+              const Spacer(),
+              IconButton(
+                onPressed: () => _showDeviceScanner(context, ble),
+                icon: const Icon(Icons.wifi_tethering, color: AX.textMid),
+                tooltip: "Scan for devices",
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // The signature: a faint live trace, like an idle scope screen
+          Opacity(opacity: 0.9, child: SignalTrace(height: 30, seed: 11)),
+        ],
+      ),
+    );
+  }
+
+  // ── Big arm/start button with a mono command label ────────────
+  Widget _startButton(BLEService ble, bool canStart) {
+    return SizedBox(
+      height: 56,
+      child: ElevatedButton(
+        onPressed: canStart ? () => _startMeasurement(ble) : null,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: const [
+            Icon(Icons.play_arrow_rounded, size: 22),
+            SizedBox(width: 8),
+            Text("START MEASUREMENT",
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
+          ],
         ),
+      ),
+    );
+  }
+
+  // ── Connection status strip — reads like an instrument link readout ──
+  Widget _connectionStrip(BLEService ble) {
+    final connected = ble.isConnected;
+    final accent = connected ? AX.signal : AX.textLo;
+    final name = connected
+        ? (ble.connectedDevice?.platformName.isNotEmpty == true
+            ? ble.connectedDevice!.platformName
+            : "AnalyteX")
+        : "NO LINK";
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AX.panel,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: connected ? AX.signal.withValues(alpha: 0.45) : AX.hairline),
       ),
       child: Row(
         children: [
+          // pulsing/steady status dot
           Container(
-            width: 38,
-            height: 38,
+            width: 9,
+            height: 9,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: connected
-                  ? AnalyteXColors.success.withValues(alpha: 0.18)
-                  : AnalyteXColors.surfaceRaised,
-            ),
-            alignment: Alignment.center,
-            child: Icon(
-              connected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
-              size: 19,
-              color: connected ? AnalyteXColors.success : AnalyteXColors.textMuted,
+              color: accent,
+              boxShadow: connected
+                  ? [BoxShadow(color: AX.signal.withValues(alpha: 0.6), blurRadius: 8, spreadRadius: 1)]
+                  : null,
             ),
           ),
           const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  connected ? "Device connected" : "No device connected",
-                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-                ),
-                Text(
-                  connected
-                      ? (ble.connectedDevice?.platformName.isNotEmpty == true
-                          ? ble.connectedDevice!.platformName
-                          : "AnalyteX")
-                      : "Tap Connect to scan for nearby units",
-                  style: const TextStyle(fontSize: 12, color: AnalyteXColors.textMuted),
-                ),
-              ],
-            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text("LINK",
+                  style: _eyebrow.copyWith(color: accent, fontSize: 10, letterSpacing: 2.5)),
+              const SizedBox(height: 2),
+              Text(name,
+                  style: TextStyle(
+                    fontFamily: 'PlexMono',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: connected ? AX.textHi : AX.textMid,
+                  )),
+            ],
           ),
+          const Spacer(),
           if (connected)
-            TextButton(
-              onPressed: () => ble.disconnect(),
-              child: const Text("Disconnect"),
-            )
+            TextButton(onPressed: () => ble.disconnect(), child: const Text("DISCONNECT"))
           else
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                minimumSize: const Size(0, 36),
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+                minimumSize: const Size(0, 38),
+                padding: const EdgeInsets.symmetric(horizontal: 18),
               ),
               onPressed: () => _showDeviceScanner(context, ble),
-              child: const Text("Connect"),
+              child: const Text("CONNECT", style: TextStyle(letterSpacing: 0.5)),
             ),
         ],
       ),
     );
   }
 
-  // ── Material profile picker card ──────────────────────────────
+  // ── Material profile picker + technical spec card ─────────────
   Widget _profileCard() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -352,8 +366,8 @@ class _HomePageState extends State<HomePage> {
           value: _selectedProfile,
           isExpanded: true,
           decoration: const InputDecoration(
-            labelText: "Test for",
-            prefixIcon: Icon(Icons.science_outlined),
+            labelText: "TEST FOR",
+            prefixIcon: Icon(Icons.biotech_outlined, color: AX.textMid),
           ),
           items: _profiles
               .map((p) => DropdownMenuItem(
@@ -364,109 +378,133 @@ class _HomePageState extends State<HomePage> {
           onChanged: (p) => setState(() => _selectedProfile = p),
         ),
         if (_selectedProfile != null)
-          Card(
+          Container(
             margin: const EdgeInsets.only(top: 10),
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+            decoration: BoxDecoration(
+              color: AX.panel,
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: AX.hairline),
+            ),
+            child: Column(
+              children: [
+                // method badge header
+                Container(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+                  decoration: const BoxDecoration(
+                    border: Border(bottom: BorderSide(color: AX.hairline)),
+                  ),
+                  child: Row(
                     children: [
                       Expanded(
                         child: Text(_selectedProfile!.material,
-                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                         decoration: BoxDecoration(
-                          color: AnalyteXColors.teal.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(20),
+                          color: AX.signal.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(3),
+                          border: Border.all(color: AX.signal.withValues(alpha: 0.5)),
                         ),
-                        child: Text(
-                          _selectedProfile!.method,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: AnalyteXColors.teal,
-                          ),
-                        ),
+                        child: Text(_selectedProfile!.method,
+                            style: const TextStyle(
+                              fontFamily: 'PlexMono',
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 1,
+                              color: AX.signal,
+                            )),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 6),
-                  Text("Electrolyte: ${_selectedProfile!.electrolyte}",
-                      style: const TextStyle(fontSize: 12, color: AnalyteXColors.textMuted)),
-                  if (_selectedProfile!.notes.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: AnalyteXColors.amber.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: AnalyteXColors.amber.withValues(alpha: 0.3)),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Icon(Icons.bookmark_outline, size: 15, color: AnalyteXColors.amber),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(_selectedProfile!.notes,
-                                style: const TextStyle(fontSize: 11.5, color: AnalyteXColors.amber, height: 1.3)),
+                ),
+                // spec rows (mono key/value like a datasheet)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+                  child: Column(
+                    children: [
+                      _specRow("ELECTROLYTE", _selectedProfile!.electrolyte),
+                      if (_selectedProfile!.notes.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(11),
+                          decoration: BoxDecoration(
+                            color: AX.amber.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(3),
+                            border: Border(left: BorderSide(color: AX.amber, width: 2)),
                           ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
-              ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(Icons.menu_book_outlined, size: 14, color: AX.amber),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(_selectedProfile!.notes,
+                                    style: const TextStyle(
+                                        fontSize: 11.5, color: AX.amber, height: 1.35)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
       ],
     );
   }
 
-  // ── "How it works" strip ──────────────────────────────────────
-  // Fills what used to be dead space below the fold with something a
-  // first-time operator actually benefits from seeing.
-  Widget _howItWorks() {
+  Widget _specRow(String k, String v) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 92,
+          child: Text(k, style: _eyebrow.copyWith(fontSize: 10, letterSpacing: 1.2)),
+        ),
+        Expanded(
+          child: Text(v, style: const TextStyle(fontSize: 12.5, color: AX.textHi, height: 1.3)),
+        ),
+      ],
+    );
+  }
+
+  // ── Workflow strip: CONNECT › SELECT › MEASURE, technical style ──
+  Widget _workflowStrip() {
     final steps = [
-      (Icons.bluetooth_searching, "Connect", "Pair with your AnalyteX device"),
-      (Icons.science_outlined, "Pick a test", "Choose the material or analyte"),
-      (Icons.show_chart, "Measure", "Run the scan and view live results"),
+      ("01", "CONNECT", "Pair the device"),
+      ("02", "SELECT", "Choose the analyte"),
+      ("03", "MEASURE", "Run & read live"),
     ];
     return Row(
       children: [
         for (var i = 0; i < steps.length; i++) ...[
           Expanded(
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: AnalyteXColors.surfaceRaised,
-                  ),
-                  alignment: Alignment.center,
-                  child: Icon(steps[i].$1, size: 20, color: AnalyteXColors.teal),
-                ),
+                Text(steps[i].$1,
+                    style: const TextStyle(
+                      fontFamily: 'PlexMono',
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AX.signal,
+                    )),
+                const SizedBox(height: 6),
+                Container(height: 1, color: AX.hairline),
                 const SizedBox(height: 8),
                 Text(steps[i].$2,
-                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5)),
+                    style: const TextStyle(
+                        fontFamily: 'PlexMono', fontSize: 11.5, fontWeight: FontWeight.w600, letterSpacing: 0.8)),
                 const SizedBox(height: 2),
-                Text(steps[i].$3,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 10.5, color: AnalyteXColors.textMuted)),
+                Text(steps[i].$3, style: const TextStyle(fontSize: 10.5, color: AX.textLo, height: 1.3)),
               ],
             ),
           ),
-          if (i != steps.length - 1)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 32),
-              child: Icon(Icons.chevron_right, size: 16, color: AnalyteXColors.outline),
-            ),
+          if (i != steps.length - 1) const SizedBox(width: 14),
         ],
       ],
     );
@@ -513,33 +551,48 @@ class _HomePageState extends State<HomePage> {
     _field(_eisBias,  "DC Bias (mV)",          "-1000 to 1000"),
   ]);
 
-  Widget _formCard(String title, List<Widget> fields) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-          const SizedBox(height: 12),
-          ...fields.map((f) => Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: f,
-          )),
-        ],
-      ),
+  Widget _formCard(String title, List<Widget> fields) => Container(
+    decoration: BoxDecoration(
+      color: AX.panel,
+      borderRadius: BorderRadius.circular(4),
+      border: Border.all(color: AX.hairline),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(14, 11, 14, 11),
+          decoration: const BoxDecoration(
+            border: Border(bottom: BorderSide(color: AX.hairline)),
+          ),
+          child: Text(title.toUpperCase(),
+              style: _eyebrow.copyWith(color: AX.textHi, letterSpacing: 1.2)),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
+          child: Column(
+            children: fields.map((f) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: f,
+            )).toList(),
+          ),
+        ),
+      ],
     ),
   );
 
   Widget _field(TextEditingController ctrl, String label, String hint) =>
       TextField(
         controller: ctrl,
+        style: const TextStyle(fontFamily: 'PlexMono', fontSize: 15, color: AX.textHi),
         keyboardType: const TextInputType.numberWithOptions(
             signed: true, decimal: true),
         decoration: InputDecoration(
-          labelText: label,
+          labelText: label.toUpperCase(),
+          isDense: true,
           hintText: hint,
-          hintStyle: const TextStyle(fontSize: 12, color: Colors.grey),
+          hintStyle: const TextStyle(fontFamily: 'PlexMono', fontSize: 12, color: AX.textLo),
         ),
       );
 
@@ -653,7 +706,7 @@ class _HomePageState extends State<HomePage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
-        backgroundColor: AnalyteXColors.danger,
+        backgroundColor: AX.danger,
         duration: const Duration(seconds: 4),
       ),
     );
@@ -666,7 +719,7 @@ class _HomePageState extends State<HomePage> {
     ble.startScan();
     showModalBottomSheet(
       context: context,
-      backgroundColor: AnalyteXColors.surface,
+      backgroundColor: AX.surface,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => SizedBox(
@@ -677,18 +730,30 @@ class _HomePageState extends State<HomePage> {
               const SizedBox(height: 12),
               Container(width: 40, height: 4,
                   decoration: BoxDecoration(
-                      color: AnalyteXColors.outline,
+                      color: AX.outline,
                       borderRadius: BorderRadius.circular(2))),
-              const SizedBox(height: 14),
-              const Text("Scan & Connect",
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: const [
+                  Icon(Icons.wifi_tethering, size: 16, color: AX.signal),
+                  SizedBox(width: 8),
+                  Text("NEARBY DEVICES",
+                      style: TextStyle(
+                        fontFamily: 'PlexMono',
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 1.5,
+                      )),
+                ],
+              ),
               if (ble.isScanning)
                 const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  child: LinearProgressIndicator(color: AnalyteXColors.teal),
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: LinearProgressIndicator(color: AX.signal, minHeight: 2),
                 )
               else
-                const SizedBox(height: 10),
+                const SizedBox(height: 14),
               Expanded(
                 child: ble.scanResults.isEmpty
                     ? const Center(
@@ -696,25 +761,25 @@ class _HomePageState extends State<HomePage> {
                           padding: EdgeInsets.all(24),
                           child: Text("No devices found.\nMake sure firmware is running.",
                               textAlign: TextAlign.center,
-                              style: TextStyle(color: AnalyteXColors.textMuted)),
+                              style: TextStyle(color: AX.textMuted)),
                         ),
                       )
                     : ListView.separated(
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                         itemCount: ble.scanResults.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1, color: AnalyteXColors.outline),
+                        separatorBuilder: (_, __) => const Divider(height: 1, color: AX.outline),
                         itemBuilder: (_, i) {
                           final r = ble.scanResults[i];
                           return ListTile(
                             leading: const Icon(Icons.bluetooth,
-                                color: AnalyteXColors.teal),
+                                color: AX.teal),
                             title: Text(r.device.platformName.isNotEmpty
                                 ? r.device.platformName
                                 : "Unknown Device"),
                             subtitle: Text(r.device.remoteId.toString(),
-                                style: const TextStyle(fontSize: 12)),
+                                style: const TextStyle(fontFamily: 'PlexMono', fontSize: 11, color: AX.textLo)),
                             trailing: Text("${r.rssi} dBm",
-                                style: const TextStyle(color: AnalyteXColors.textMuted)),
+                                style: const TextStyle(fontFamily: 'PlexMono', fontSize: 12, color: AX.signal)),
                             onTap: () async {
                               Navigator.pop(ctx);
                               await ble.connectToDevice(r.device);
@@ -727,6 +792,30 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ── Footer brand mark ─────────────────────────────────────────
+class _FooterMark extends StatelessWidget {
+  const _FooterMark();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(height: 1, color: AX.hairline),
+        const SizedBox(height: 14),
+        Text(
+          "VIDYUTHLABS TECHNOLOGIES PVT LTD",
+          style: TextStyle(
+            fontFamily: 'PlexMono',
+            fontSize: 9.5,
+            letterSpacing: 1.5,
+            color: AX.textLo.withValues(alpha: 0.8),
+          ),
+        ),
+      ],
     );
   }
 }

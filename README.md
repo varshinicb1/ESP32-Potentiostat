@@ -156,11 +156,20 @@ Built (`flutter build apk --debug`) and installed on a running AVD (`emulator-55
 
 The screenshots above were flagged, correctly, as looking bad — flat untouched Flutter-tutorial defaults (`Colors.blueAccent` on `#121212`, no type scale), a connection status buried in a 12px AppBar chip, large dead space below the fold, and a disabled button with no explanation. Fixed in `main.dart` (a real `AnalyteXColors` palette — electric teal on near-black ink, amber reserved for literature/reference callouts — plus a proper `ColorScheme`/`TextTheme`/component themes) and `home_page.dart` (a prominent connect/disconnect banner, a redesigned profile card with a method-badge pill and a highlighted literature-benchmark callout, an inline reason under the disabled Start button instead of a bare grayed-out control, and a "Connect → Pick a test → Measure" footer strip that fills the space instead of leaving it empty):
 
-| Redesigned home screen | Advanced / manual mode (same theme) |
-|---|---|
-| ![Redesigned home screen](docs/screenshots/mobile_redesign_home.png) | ![Redesigned advanced mode](docs/screenshots/mobile_redesign_advanced.png) |
+That first pass was still generic dark-mode-teal with stock Roboto — competent but anonymous, and it kept the stock Flutter-logo splash. A second, committed design pass gave the app a real point of view: **"field scientific instrument."**
 
-Rebuilt (`flutter build apk --debug`, `flutter analyze` clean aside from 2 pre-existing deprecation infos unrelated to this change) and reinstalled on the same AVD to capture both of these — not mockups; the Advanced-mode screenshot was reached by an actual `adb input tap` on the toggle. `chart_page.dart` (the live-plot/results screen) also got matching color-token fixes this pass — the hardcoded `Colors.blueAccent`/`Colors.red[700]`/`Colors.green[700]` status pill, abort button, and error snackbars were replaced with `AnalyteXColors` tokens so it doesn't clash with the rest of the app. **Not screenshotted:** reaching that screen requires an actual BLE-connected device (the Start button is disabled without one), and the Android emulator has no way to pair with real hardware — so this fix is verified by `flutter analyze` passing clean, not by a rendered screenshot.
+| Home (instrument aesthetic) | Advanced / manual mode | Device scanner |
+|---|---|---|
+| ![v2 home](docs/screenshots/mobile_v2_home.png) | ![v2 advanced](docs/screenshots/mobile_v2_advanced.png) | ![v2 scanner](docs/screenshots/mobile_v2_scanner.png) |
+
+Three deliberate moves, all visible above and verified on the running emulator (real `adb` screenshots, not mockups):
+1. **Graticule background** — a faint graph-paper grid behind every screen (a `CustomPainter`), the visual language of an oscilloscope / a voltammogram, which is literally what this device draws. Plus a live **signal-trace** flourish under the header so the app reads as "on".
+2. **IBM Plex typography, bundled** (Plex Sans for UI, **Plex Mono for every data value and technical label**) — so parameters like `-0.5`, `0.8`, `0.1` and labels like `LINK / NO LINK`, `START VOLTAGE (V)`, `SWV` render like an instrument readout, not stock Roboto. Fonts are bundled as assets, so it works offline.
+3. **One confident signal-green accent** on deep graphite, amber reserved for literature/reference callouts, hard corners and hairline rules throughout.
+
+Also replaced the **stock Flutter-logo splash and launcher icon** with an AnalyteX adaptive icon (bracketed `AX` mark on ink) generated at every density, and set the Android-12 splash background to ink — no more white Flutter-logo flash on launch.
+
+`chart_page.dart` (the live-plot/results screen) was redesigned to match as a **scope screen** — mono readout bar (`PTS / Y / X`), a `REC`/`DONE` status pill, and a signal-green trace with a gradient fill on a dark graticule. **Not screenshotted:** reaching it requires a BLE-connected device (Start is disabled without one) and the emulator can't pair with real hardware, so it's verified by `flutter analyze` (clean) not a render. `flutter analyze` across the app is clean apart from benign framework-deprecation infos.
 
 ### Desktop GUI — real PyQt6 run
 
