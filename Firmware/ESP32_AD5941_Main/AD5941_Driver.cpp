@@ -195,27 +195,37 @@ void AD5941_Driver::setRelay(bool connected) {
 
 // ===================================================================
 // enterSafeState()
-// Called on emergency stop or POST failure. Instantly disconnects electrodes.
+// Called on emergency stop or POST failure. Isolates the electrodes.
+//
+// HARDWARE REALITY (finalized — hardware is fixed at this revision): there
+// is NO physical isolation relay on this board (see AD5941_Driver.h). The
+// ACTUAL electrode isolation on this hardware is opening the AD5941's AFE
+// switch matrix — that electrically disconnects CE0/RE0/SE0 from the
+// excitation amplifier and TIA inside the chip. That is done FIRST here and
+// is the real safety mechanism; do not weaken it on the assumption a relay
+// is backing it up, because none is.
 // ===================================================================
 void AD5941_Driver::enterSafeState() {
-    // 1. Open physical isolation relay immediately
-    setRelay(false);
-
-    // 2. Disable Waveform Generator
-    AD5940_AFECtrlS(AFECTRL_WG, bFALSE);
-
-    // 3. Open all switches in AFE switch matrix (isolate CE, WE, RE)
+    // 1. REAL isolation: open every switch in the AFE switch matrix. This is
+    //    what actually disconnects CE/WE/RE on this board (0x00010000 leaves
+    //    only the reserved high bit set, all signal switches open).
     AD5940_WriteReg(REG_AFE_SWCON, 0x00010000);
 
-    // 4. Return the DAC to the neutral (0V cell bias) operating point.
-    // Previously this wrote LPDAC 12-bit code 0 while keeping whatever 6-bit
-    // sub-code happened to be in the register — code 0 is the DAC_MIN_MV rail
-    // (200 mV) in Voltammetry_Methods::setVoltageBias's own mapping, not the
-    // VREF_TIA_MV (1100 mV) "virtual ground" used as zero-bias everywhere
-    // else. The relay is already open at this point (step 1, above) so this
-    // was never reaching the electrodes, but leave the chip state genuinely
-    // neutral rather than parked at a rail value, for defense-in-depth.
+    // 2. Stop driving: disable the waveform generator so no excitation is
+    //    generated even internally.
+    AD5940_AFECtrlS(AFECTRL_WG, bFALSE);
+
+    // 3. Park the DAC at the true neutral (0 V cell bias) operating point
+    //    rather than a rail value, so the chip's internal state is benign
+    //    even though the matrix (step 1) has already isolated the electrodes.
     Voltammetry_Methods::setVoltageBias(0.0f);
+
+    // 4. Legacy relay line: drive GPIO8 to its "disconnected" level. This is
+    //    a NO-OP on this board (GPIO8 is not wired to any relay — see
+    //    AD5941_Driver.h) and is kept only so a future PCB revision that adds
+    //    a relay gets the correct level for free. It is NOT relied upon for
+    //    isolation here; step 1 is.
+    setRelay(false);
 }
 
 // ===================================================================

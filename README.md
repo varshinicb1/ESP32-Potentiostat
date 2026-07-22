@@ -117,12 +117,23 @@ arduino-cli compile --fqbn esp32:esp32:esp32s3:PartitionScheme=huge_app Firmware
 ```
 
 ```
-Sketch uses 1740497 bytes (55%) of program storage space. Maximum is 3145728 bytes.
+Sketch uses 1740421 bytes (55%) of program storage space. Maximum is 3145728 bytes.
 Global variables use 132036 bytes (40%) of dynamic memory, leaving 195644 bytes for local variables. Maximum is 327680 bytes.
 ```
 Full log: [`docs/firmware_compile_log.txt`](docs/firmware_compile_log.txt).
 
 **Compiled clean, zero errors, zero warnings**, against the AD5940 SDK, LovyanGFX, lvgl, ArduinoJson, and WebSockets — this is the first real compile since a substantial AFE re-architecture pass (dual-loop LP/HS-loop bring-up, corrected switch-matrix routing, corrected GPIO pin mapping against the actual schematic, a cross-driver SPI-bus mutex). **This confirms the code builds; it does not confirm it's correct on real hardware** — nothing here exercises the actual AD5941 chip, the display panel, or the shared-bus arbitration under real FreeRTOS scheduling. That's the next step, not this one.
+
+### Hardware-final pass (this revision is frozen)
+
+With the board revision fixed, the remaining "on-paper unknowns" were closed against the datasheet + SDK, and the safety story was made honest about what this board can actually do:
+
+- **EIS N-switch resolved.** `SWN_SE0` is the datasheet's N9 switch ("negative node of the excitation amplifier directly to SE0") — the correct 3-electrode loop closure through the working electrode, matching ADI's canonical `Impedance.c` config. It was previously flagged "unverified placeholder"; that flag is retracted. (The one genuine remaining unknown is end-to-end gain/phase accuracy, which is a calibration/bring-up matter, not a routing one.)
+- **No isolation relay — and the code no longer pretends otherwise.** This board has no relay populated (confirmed against schematic/BOM/netlist). Electrode isolation is the AD5941's AFE switch matrix. `enterSafeState()` now opens that matrix, stops the waveform generator, and parks the DAC at 0 V *first*, and is called on **every** measurement exit path (previously a normal completion left the cell polarized at the last scan potential). The GPIO8 "relay" line is kept only as a forward-compat no-op for a future relay-equipped revision, and the POST log no longer reports a fake relay "PASS".
+- **Firmware ↔ app protocol contract verified end-to-end.** Every command param key (manual forms *and* the 5 bundled material profiles) matches the firmware's JSON parser, and every firmware data-frame key (`data`/`eis_data`/status) matches the app's parser — checked field by field, so a profile-driven run won't silently fall back to firmware defaults on a key typo.
+- **LpTiaSW discrepancy** (ADI example bits {2,4,5,12,13} vs datasheet Table 21's 0x302C) remains a documented decision, not a loose end: the datasheet's bit table is generic and the disambiguating detail is only in Figure 22 (an image). The shipped-example value is kept, with an in-code note to re-check against Figure 22 or hardware if LPTIA behaviour looks off.
+
+**Still requires the physical device** (unchanged): actual AD5941 register I/O, panel + touch, shared-bus arbitration under real scheduling, and a reference-instrument cross-check of measured values.
 
 ### Mobile app — real Android emulator run
 

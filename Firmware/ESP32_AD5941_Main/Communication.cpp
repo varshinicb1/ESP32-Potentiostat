@@ -124,8 +124,13 @@ void Communication::init() {
     pServer->getAdvertising()->start();
 
     // --- WiFi Access Point ---
-    // TODO (production): derive password from chip UID stored in NVS.
-    // For now, use a strong default — must be changed per-device before shipping.
+    // Per-device WPA2 password derived from the factory-programmed eFuse MAC
+    // (unique per ESP32-S3, immutable, needs no NVS storage and survives a
+    // flash erase). Format "VL-xxxxXXXXXXXX" = 15 chars, within WPA2's 8..63.
+    // This is NOT a shared default: every unit ships with a distinct key. The
+    // eFuse MAC is derivable by someone who can already see the BLE address,
+    // so this is device-isolation convenience, not a hard security boundary —
+    // pair the AP with app-layer auth if stronger guarantees are ever needed.
     char apPassword[32];
     uint64_t chipId = ESP.getEfuseMac();
     snprintf(apPassword, sizeof(apPassword), "VL-%04X%08X",

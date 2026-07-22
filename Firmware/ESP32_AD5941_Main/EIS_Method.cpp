@@ -215,13 +215,19 @@ void EIS_Method::setExcitationSine(float frequency) {
 // datasheet as the standard current-sense input ("High speed TIA measures
 // SE0...current response").
 //
-// STILL UNVERIFIED: the N-switch ("negative node of the excitation
-// amplifier") role for a standard 3-electrode setup — the datasheet doesn't
-// give a "for most applications" default for N the way it does for D/P, and
-// no worked 3-electrode HS-loop example was found (only the low-power loop
-// has a full recommended-settings table, Table 21). Leaving N at SWN_SE0 as
-// a placeholder; verify against Figure 35/36 (switch matrix diagrams) or
-// ADI support before trusting phase accuracy.
+// N-switch RESOLVED (datasheet Rev. G, NSWFULLCON register, Table 85 +
+// SDK header ad5940.h): SWN_SE0 == (1<<8) == the datasheet's N9 switch,
+// described as "connects the negative node of the excitation amplifier
+// directly to the SE0 pin". For a 3-electrode cell this is exactly the
+// loop closure needed: the HS excitation amplifier drives CE0 (D), servos
+// to the RE0 reference (P), and its negative feedback node returns through
+// the working/sense electrode SE0 (N) whose current the HSTIA measures at
+// SE0LOAD (T = SWT_SE0LOAD|SWT_TRTIA, the node after the 100R RLOAD). This
+// is symmetric with the RCAL path above (excitation across RCAL0, sense at
+// RCAL1) and matches ADI's canonical Impedance.c 3-/2-lead configuration.
+// Not a placeholder — the earlier "unverified" note is retracted; the only
+// remaining unknown is end-to-end phase accuracy on real hardware, which is
+// a calibration/bring-up matter, not a switch-routing one.
 // ===================================================================
 #define EIS_SWITCH_RCAL_D   SWD_RCAL0
 #define EIS_SWITCH_RCAL_P   SWP_RCAL0

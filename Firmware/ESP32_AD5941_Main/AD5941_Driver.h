@@ -47,15 +47,18 @@
 // most applications, this pin is RE0" — corrected from ADI's eval-board
 // example, which uses CE0), T -> SE0 (HSTIA current sense, confirmed).
 //
-// STILL UNVERIFIED — genuinely open, not just caution-flagged:
-//   - The N-switch role for a standard 3-electrode HS-loop setup. No
-//     "for most applications" default is given for N in the datasheet text
-//     found so far, and no worked 3-electrode HS-loop example was found
-//     (only the LP-loop has a full recommended-settings table, Table 21).
-//   - None of this has been tested against real hardware. It's grounded in
-//     three independent sources (datasheet + SDK source + this board's own
-//     schematic) rather than assumption, but bring-up on the actual device
-//     is the only way to confirm it end-to-end.
+//   N-switch role: RESOLVED (see EIS_Method.cpp). SWN_SE0 == datasheet N9
+//   switch == "negative node of the excitation amplifier directly to SE0",
+//   the standard 3-electrode loop closure through the working electrode;
+//   matches ADI's canonical Impedance.c config. No longer open.
+//
+// The one thing that genuinely still requires the physical device: none of
+// the AFE routing has been exercised against real hardware. It's grounded
+// in three independent sources (datasheet Rev. G + SDK source + this
+// board's own schematic) rather than assumption, and the switch/pin/loop
+// config is now fully pinned down on paper, but end-to-end accuracy (gain,
+// phase, absolute current) can only be confirmed by bring-up and a
+// reference-instrument cross-check.
 // ===================================================================
 
 #include <Arduino.h>

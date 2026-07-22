@@ -13,9 +13,11 @@
 //
 // Safety Features:
 //   - Power-On Self-Test (POST) with SPI, Vref, Temp, RAM checks
-//   - Physical Isolation Relay (GPIO 8) with measurement lifecycle
+//   - Safe-State on error/abort: AFE switch matrix opened, waveform generator
+//     off, DAC parked at 0 V cell bias (this is the real electrode-isolation
+//     mechanism on this board — there is NO physical relay; GPIO8 is an
+//     unwired forward-compat line, see AD5941_Driver.h)
 //   - Task Watchdog Timer (TWDT) for all critical tasks
-//   - Safe-State shutdown on error/abort
 //   - Firmware CRC32 integrity verification at boot (NVS reference)
 //   - Non-volatile syslog event logging to SD card
 //   - FreeRTOS mutex-protected state machine and SD access
@@ -120,7 +122,8 @@ static void setAbort(bool val) {
     // IMPORTANT: Voltammetry_Methods and EIS_Method poll AD5941_Driver::isAbortPending(),
     // a *separate* flag from the one above. Both must be kept in sync or ABORT will
     // stop data being forwarded to the client while the hardware scan keeps running
-    // underneath (electrodes stay biased, relay stays closed) until it finishes on its own.
+    // underneath (electrodes stay biased at the scan potential) until it finishes on
+    // its own.
     AD5941_Driver::setAbortFlag(val);
 }
 
@@ -300,31 +303,41 @@ void sendStatusMessage(const char* status, const char* detail = nullptr) {
 }
 
 // ===================================================================
-// Helper: Execute measurement with relay and safety envelope
+// Helper: Execute measurement within the safety envelope
+//
+// NOTE (finalized for this hardware revision): there is no physical
+// isolation relay on this board (see AD5941_Driver.h). Electrode connection
+// is via the AD5941's internal AFE loop, configured once in configureAFE()
+// and per-sweep for EIS. The setRelay() calls here are forward-compatible
+// no-ops for a future relay-equipped revision; they are NOT what actually
+// connects or isolates the cell, so the log/claims below don't pretend they
+// are. On every exit path the cell is returned to a safe 0 V / no-excitation
+// state via enterSafeState() — the real thing this board can do.
 // ===================================================================
 void executeMeasurementSafe(const char* technique, std::function<void()> measurementFn) {
     Storage::logEvent("INFO", String("Starting ") + technique + " measurement");
 
-    // 1. Close physical isolation relay — connect electrodes
+    // Forward-compat only (no-op on this board): drive the relay line to
+    // "connected" for a future revision that populates the relay.
     AD5941_Driver::setRelay(true);
-    Storage::logEvent("INFO", "Relay CLOSED — electrodes connected");
-    delay(50); // Relay settling time
 
-    // 2. Execute the measurement
+    // Execute the measurement.
     measurementFn();
 
-    // 3. Open physical isolation relay — isolate electrodes regardless of outcome
-    AD5941_Driver::setRelay(false);
-    Storage::logEvent("INFO", "Relay OPENED — electrodes isolated");
+    // Return the cell to a safe idle state on EVERY exit path (previously only
+    // done on abort — a normal completion used to leave the cell polarized at
+    // the last scan potential). enterSafeState() opens the HS switch matrix,
+    // stops the waveform generator, parks the DAC at 0 V bias, and drives the
+    // (unwired) relay line open.
+    AD5941_Driver::enterSafeState();
 
-    // 4. Handle abort
     if (isAbortRequested()) {
-        AD5941_Driver::enterSafeState();
         Storage::logEvent("WARN", String(technique) + " measurement ABORTED by user");
         setAbort(false);
     } else {
         Storage::logEvent("INFO", String(technique) + " measurement completed successfully");
     }
+    Storage::logEvent("INFO", "Cell returned to 0 V bias (no galvanic relay on this board)");
 }
 
 // ===================================================================
@@ -527,8 +540,9 @@ void TaskDAQ(void* pvParameters) {
     AD5941_Driver::initMCU();
     AD5941_Driver::resetChip();
     AD5941_Driver::configureAFE(); // AFE reference buffers + LP-loop bring-up (see AD5941_Driver.h)
-    AD5941_Driver::setRelay(false); // Ensure electrodes isolated at startup
-    Storage::logEvent("INFO", "AD5941 initialized on Core 1. Relay confirmed OPEN.");
+    AD5941_Driver::enterSafeState(); // Start idle: AFE matrix open, WG off, DAC at 0 V bias
+    AD5941_Driver::setRelay(false); // Forward-compat no-op (no relay on this board)
+    Storage::logEvent("INFO", "AD5941 initialized on Core 1. Cell idle at 0 V bias.");
 
     for (;;) {
         PotentiostatState currentState = getState();
@@ -645,11 +659,14 @@ bool runPowerOnSelfTest() {
         return false;
     }
 
-    // --- Step 4: Relay default state verification ---
-    Serial.print("[POST] Verifying relay default state (OPEN)... ");
+    // --- Step 4: Set relay line to safe default ---
+    // NOTE: this only drives GPIO8 low; it does NOT verify a relay, because
+    // this board has none (see AD5941_Driver.h). Kept as a forward-compat
+    // default for a future relay-equipped revision. Not phrased as a PASS/test
+    // so the POST log doesn't imply hardware isolation the board can't provide.
     AD5941_Driver::setRelay(false);
-    Serial.println("PASS — Relay GPIO " + String(AD5941_RELAY) + " confirmed LOW");
-    Storage::logEvent("INFO", "Relay default state verified OPEN");
+    Serial.println("[POST] Relay line GPIO " + String(AD5941_RELAY) + " driven LOW (no relay populated on this board)");
+    Storage::logEvent("INFO", "Relay line default set LOW (no relay on this board)");
 
     // --- Step 5: SD Card ---
     Serial.print("[POST] Checking SD card... ");
